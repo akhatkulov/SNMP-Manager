@@ -1,0 +1,117 @@
+# ──────────────────────────────────────────────────────────────────────
+#  SNMP Manager Configuration
+#  Designed for SIEM integration
+# ──────────────────────────────────────────────────────────────────────
+
+server:
+  name: "snmp-manager-01"
+  log_level: "info"         # debug, info, warn, error
+  log_format: "console"     # json (production), console (development)
+
+# ── MIB Settings ──────────────────────────────────────────────────────
+mib:
+  directories:
+    - "./internal/mib/mibs"
+
+# ── SNMP Poller ───────────────────────────────────────────────────────
+poller:
+  workers: 10                # Number of parallel polling goroutines
+  default_interval: 60s      # Default polling interval
+  timeout: 5s                # SNMP request timeout
+  retries: 2                 # Number of retry attempts
+  max_oids_per_request: 20   # Max OIDs per SNMP GetBulk
+
+# ── Trap Receiver ─────────────────────────────────────────────────────
+trap_receiver:
+  enabled: true
+  listen_address: "0.0.0.0:162"  # Standart SNMP trap port (sudo kerak)
+
+  # SNMPv3 users for trap authentication (optional)
+  # v3_users:
+  #   - username: "trap_user"
+  #     auth_protocol: "SHA256"
+  #     auth_passphrase: "${SNMP_TRAP_AUTH_PASS}"
+  #     priv_protocol: "AES256"
+  #     priv_passphrase: "${SNMP_TRAP_PRIV_PASS}"
+
+# ── Devices ───────────────────────────────────────────────────────────
+devices:
+  # SW2 — Sizning switch qurilmangiz
+  - name: "SW2"
+    ip: "172.16.16.2"             # ← SW2 ning IP manzilini yozing!
+    port: 161
+    snmp_version: "v2c"
+    community: "SW2"
+    poll_interval: 60s
+    oid_groups:
+      - "system"
+      - "interfaces"
+    tags:
+      location: "DC-Tashkent"
+      criticality: "high"
+      environment: "production"
+
+  # Local test agent
+  - name: "localhost"
+    ip: "127.0.0.1"
+    port: 161
+    snmp_version: "v2c"
+    community: "public"
+    poll_interval: 60s
+    enabled: false                 # Test uchun o'chirilgan
+    oid_groups:
+      - "system"
+    tags:
+      location: "local"
+      criticality: "low"
+
+# ── Pipeline ──────────────────────────────────────────────────────────
+pipeline:
+  buffer_size: 10000          # Event buffer size
+  batch_size: 100             # Batch output size
+  flush_interval: 5s          # Max wait before flushing
+  workers: 4                  # Pipeline worker goroutines
+
+  normalizer:
+    resolve_oid_names: true
+    resolve_hostnames: false  # Set to true if DNS is available
+
+  enricher:
+    geoip_db: ""              # Path to GeoLite2-City.mmdb (optional)
+    asset_db: ""              # Path to asset database (optional)
+
+# ── Outputs ───────────────────────────────────────────────────────────
+outputs:
+  # Console output (for development)
+  - type: "stdout"
+    enabled: true
+
+  # File output (always recommended as backup)
+  - type: "file"
+    enabled: true
+    path: "./logs/snmp-events.log"
+    max_size_mb: 100
+    max_backups: 5
+    compress: true
+
+  # Syslog → SIEM (uncomment for production)
+  # - type: "syslog"
+  #   enabled: true
+  #   address: "siem.company.local:514"
+  #   protocol: "tcp"         # udp, tcp
+  #   format: "cef"           # cef, json, syslog, leef
+
+# ── REST API ──────────────────────────────────────────────────────────
+api:
+  enabled: true
+  listen_address: "0.0.0.0:8080"
+  auth:
+    type: "api_key"
+    keys:
+      - "dev-api-key-change-me"   # Change in production!
+
+# ── Prometheus Metrics ────────────────────────────────────────────────
+metrics:
+  enabled: true
+  listen_address: "0.0.0.0:9090"
+  path: "/metrics"
