@@ -117,11 +117,12 @@ func (l *Listener) handleTrap(packet *gosnmp.SnmpPacket, addr *net.UDPAddr) {
 
 	sourceIP := addr.IP.String()
 
-	l.log.Debug().
+	l.log.Info().
 		Str("source", sourceIP).
 		Int("variables", len(packet.Variables)).
 		Str("version", versionString(packet.Version)).
-		Msg("trap received")
+		Str("community", packet.Community).
+		Msg("📥 trap received")
 
 	// Update per-version counters
 	l.mu.Lock()
