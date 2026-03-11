@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +26,8 @@ import (
 type Server struct {
 	log           zerolog.Logger
 	cfg           config.APIConfig
+	fullConfig    *config.Config
+	configPath    string
 	registry      *device.Registry
 	resolver      *mib.Resolver
 	poller        *poller.Poller
@@ -38,6 +42,8 @@ type Server struct {
 func NewServer(
 	log zerolog.Logger,
 	cfg config.APIConfig,
+	fullCfg *config.Config,
+	configPath string,
 	registry *device.Registry,
 	resolver *mib.Resolver,
 	poll *poller.Poller,
@@ -48,6 +54,8 @@ func NewServer(
 	return &Server{
 		log:           log.With().Str("component", "api").Logger(),
 		cfg:           cfg,
+		fullConfig:    fullCfg,
+		configPath:    configPath,
 		registry:      registry,
 		resolver:      resolver,
 		poller:        poll,
@@ -83,6 +91,12 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/poller/progress", s.withAuth(s.handlePollerProgress))
 	mux.HandleFunc("GET /api/v1/logs/recent", s.withAuth(s.handleRecentLogs))
 	mux.HandleFunc("GET /api/v1/config/outputs", s.withAuth(s.handleGetOutputs))
+	mux.HandleFunc("POST /api/v1/config/outputs", s.withAuth(s.handleAddOutput))
+	mux.HandleFunc("PUT /api/v1/config/outputs/{idx}", s.withAuth(s.handleUpdateOutput))
+	mux.HandleFunc("DELETE /api/v1/config/outputs/{idx}", s.withAuth(s.handleDeleteOutput))
+	mux.HandleFunc("PATCH /api/v1/config/outputs/{idx}/toggle", s.withAuth(s.handleToggleOutput))
+	mux.HandleFunc("GET /api/v1/config/server", s.withAuth(s.handleGetServerConfig))
+	mux.HandleFunc("GET /api/v1/system/info", s.withAuth(s.handleSystemInfo))
 
 	// Admin panel auth (no API key required)
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
@@ -692,52 +706,265 @@ func (s *Server) handleRecentLogs(w http.ResponseWriter, r *http.Request) {
 // handleGetOutputs returns the current output configuration (passwords masked).
 func (s *Server) handleGetOutputs(w http.ResponseWriter, r *http.Request) {
 	type outputInfo struct {
-		Type    string `json:"type"`
-		Enabled bool   `json:"enabled"`
-		Target  string `json:"target"`
-		Format  string `json:"format,omitempty"`
+		Type       string            `json:"type"`
+		Enabled    bool              `json:"enabled"`
+		Target     string            `json:"target"`
+		Format     string            `json:"format,omitempty"`
+		Protocol   string            `json:"protocol,omitempty"`
+		Path       string            `json:"path,omitempty"`
+		MaxSizeMB  int               `json:"max_size_mb,omitempty"`
+		MaxBackups int               `json:"max_backups,omitempty"`
+		Compress   bool              `json:"compress,omitempty"`
+		TLS        bool              `json:"tls,omitempty"`
+		TLSSkip    bool              `json:"tls_skip_verify,omitempty"`
+		Index      string            `json:"index,omitempty"`
+		Addresses  []string          `json:"addresses,omitempty"`
+		Username   string            `json:"username,omitempty"`
+		Headers    map[string]string `json:"headers,omitempty"`
 	}
 
 	var outs []outputInfo
 	for _, o := range s.outputConfigs {
-		target := ""
-		switch o.Type {
-		case "file":
-			target = o.Path
-		case "syslog":
-			target = o.Protocol + "://" + o.Address
-		case "http":
-			if o.URL != "" {
-				target = o.URL
-			} else {
-				target = o.Address
-			}
-		case "tcp":
-			target = "tcp://" + o.Address
-		case "elasticsearch":
-			if len(o.Addresses) > 0 {
-				target = o.Addresses[0]
-				if len(o.Addresses) > 1 {
-					target += fmt.Sprintf(" (+%d)", len(o.Addresses)-1)
-				}
-				if o.Index != "" {
-					target += "/" + o.Index
-				}
-			}
-		case "stdout":
-			target = "console"
+		info := outputInfo{
+			Type:     o.Type,
+			Enabled:  o.Enabled,
+			Format:   o.Format,
+			Protocol: o.Protocol,
 		}
 
-		outs = append(outs, outputInfo{
-			Type:    o.Type,
-			Enabled: o.Enabled,
-			Target:  target,
-			Format:  o.Format,
-		})
+		switch o.Type {
+		case "file":
+			info.Target = o.Path
+			info.Path = o.Path
+			info.MaxSizeMB = o.MaxSizeMB
+			info.MaxBackups = o.MaxBackups
+			info.Compress = o.Compress
+		case "syslog":
+			info.Target = o.Protocol + "://" + o.Address
+			if o.TLS != nil && o.TLS.Enabled {
+				info.TLS = true
+			}
+		case "http":
+			if o.URL != "" {
+				info.Target = o.URL
+			} else {
+				info.Target = o.Address
+			}
+			info.TLSSkip = o.TLSSkipVerify
+			info.Headers = o.Headers
+		case "tcp":
+			info.Target = "tcp://" + o.Address
+		case "elasticsearch":
+			info.Addresses = o.Addresses
+			info.Index = o.Index
+			if o.Username != "" {
+				info.Username = o.Username
+			}
+			if len(o.Addresses) > 0 {
+				info.Target = o.Addresses[0]
+				if len(o.Addresses) > 1 {
+					info.Target += fmt.Sprintf(" (+%d)", len(o.Addresses)-1)
+				}
+				if o.Index != "" {
+					info.Target += "/" + o.Index
+				}
+			}
+			info.TLSSkip = o.TLSSkipVerify
+		case "stdout":
+			info.Target = "console"
+		}
+
+		outs = append(outs, info)
 	}
 
 	s.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"outputs": outs,
 		"total":   len(outs),
+	})
+}
+
+// handleSystemInfo returns runtime system information.
+func (s *Server) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+
+	s.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"go_version":    runtime.Version(),
+		"os":            runtime.GOOS,
+		"arch":          runtime.GOARCH,
+		"cpus":          runtime.NumCPU(),
+		"goroutines":    runtime.NumGoroutine(),
+		"memory": map[string]interface{}{
+			"alloc_mb":       fmt.Sprintf("%.1f", float64(mem.Alloc)/1024/1024),
+			"total_alloc_mb": fmt.Sprintf("%.1f", float64(mem.TotalAlloc)/1024/1024),
+			"sys_mb":         fmt.Sprintf("%.1f", float64(mem.Sys)/1024/1024),
+			"num_gc":         mem.NumGC,
+			"heap_objects":   mem.HeapObjects,
+		},
+		"uptime":        time.Since(s.startTime).String(),
+		"uptime_seconds": int(time.Since(s.startTime).Seconds()),
+		"start_time":    s.startTime.Format(time.RFC3339),
+		"device_count":  s.registry.Stats().Total,
+	})
+}
+
+// handleGetServerConfig returns the sanitized server configuration.
+func (s *Server) handleGetServerConfig(w http.ResponseWriter, r *http.Request) {
+	if s.fullConfig == nil {
+		s.writeJSON(w, http.StatusOK, map[string]interface{}{"error": "config not available"})
+		return
+	}
+	cfg := s.fullConfig
+
+	s.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"server": map[string]interface{}{
+			"name":       cfg.Server.Name,
+			"log_level":  cfg.Server.LogLevel,
+			"log_format": cfg.Server.LogFormat,
+		},
+		"poller": map[string]interface{}{
+			"workers":              cfg.Poller.Workers,
+			"default_interval":     cfg.Poller.DefaultInterval.String(),
+			"timeout":              cfg.Poller.Timeout.String(),
+			"retries":              cfg.Poller.Retries,
+			"max_oids_per_request": cfg.Poller.MaxOIDsPerRequest,
+		},
+		"pipeline": map[string]interface{}{
+			"buffer_size":    cfg.Pipeline.BufferSize,
+			"batch_size":     cfg.Pipeline.BatchSize,
+			"flush_interval": cfg.Pipeline.FlushInterval.String(),
+			"workers":        cfg.Pipeline.Workers,
+			"normalizer": map[string]interface{}{
+				"resolve_oid_names":  cfg.Pipeline.Normalizer.ResolveOIDNames,
+				"resolve_hostnames":  cfg.Pipeline.Normalizer.ResolveHostnames,
+			},
+		},
+		"trap_receiver": map[string]interface{}{
+			"enabled":        cfg.TrapReceiver.Enabled,
+			"listen_address": cfg.TrapReceiver.ListenAddress,
+			"v3_users_count": len(cfg.TrapReceiver.V3Users),
+		},
+		"api": map[string]interface{}{
+			"listen_address": cfg.API.ListenAddress,
+			"auth_type":      cfg.API.Auth.Type,
+			"api_keys_count": len(cfg.API.Auth.Keys),
+		},
+		"metrics": map[string]interface{}{
+			"enabled":        cfg.Metrics.Enabled,
+			"listen_address": cfg.Metrics.ListenAddress,
+			"path":           cfg.Metrics.Path,
+		},
+		"mib": map[string]interface{}{
+			"load_system_mibs": cfg.MIB.LoadSystemMIBs,
+			"directories":      cfg.MIB.Directories,
+		},
+	})
+}
+
+// ── Output CRUD ──────────────────────────────────────────────────────
+
+var validOutputTypes = map[string]bool{
+	"stdout": true, "file": true, "syslog": true,
+	"http": true, "tcp": true, "elasticsearch": true,
+}
+
+func (s *Server) handleAddOutput(w http.ResponseWriter, r *http.Request) {
+	var out config.OutputConfig
+	if err := json.NewDecoder(r.Body).Decode(&out); err != nil {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+	if !validOutputTypes[out.Type] {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid output type: " + out.Type})
+		return
+	}
+
+	s.outputConfigs = append(s.outputConfigs, out)
+	if s.fullConfig != nil {
+		s.fullConfig.Outputs = s.outputConfigs
+	}
+	if err := config.SaveOutputs(s.configPath, s.outputConfigs); err != nil {
+		s.log.Error().Err(err).Msg("failed to save outputs")
+	}
+
+	s.log.Info().Str("type", out.Type).Bool("enabled", out.Enabled).Msg("output added via API")
+	s.writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"message": "Output added. Restart required to activate.",
+		"total":   len(s.outputConfigs),
+	})
+}
+
+func (s *Server) handleUpdateOutput(w http.ResponseWriter, r *http.Request) {
+	idx, err := strconv.Atoi(r.PathValue("idx"))
+	if err != nil || idx < 0 || idx >= len(s.outputConfigs) {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid output index"})
+		return
+	}
+
+	var out config.OutputConfig
+	if err := json.NewDecoder(r.Body).Decode(&out); err != nil {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+	if !validOutputTypes[out.Type] {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid output type: " + out.Type})
+		return
+	}
+
+	s.outputConfigs[idx] = out
+	if s.fullConfig != nil {
+		s.fullConfig.Outputs = s.outputConfigs
+	}
+	if err := config.SaveOutputs(s.configPath, s.outputConfigs); err != nil {
+		s.log.Error().Err(err).Msg("failed to save outputs")
+	}
+
+	s.log.Info().Int("index", idx).Str("type", out.Type).Msg("output updated via API")
+	s.writeJSON(w, http.StatusOK, map[string]string{"message": "Output updated. Restart required to apply."})
+}
+
+func (s *Server) handleDeleteOutput(w http.ResponseWriter, r *http.Request) {
+	idx, err := strconv.Atoi(r.PathValue("idx"))
+	if err != nil || idx < 0 || idx >= len(s.outputConfigs) {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid output index"})
+		return
+	}
+
+	removed := s.outputConfigs[idx]
+	s.outputConfigs = append(s.outputConfigs[:idx], s.outputConfigs[idx+1:]...)
+	if s.fullConfig != nil {
+		s.fullConfig.Outputs = s.outputConfigs
+	}
+	if err := config.SaveOutputs(s.configPath, s.outputConfigs); err != nil {
+		s.log.Error().Err(err).Msg("failed to save outputs")
+	}
+
+	s.log.Info().Int("index", idx).Str("type", removed.Type).Msg("output deleted via API")
+	s.writeJSON(w, http.StatusOK, map[string]string{"message": "Output deleted. Restart required to apply."})
+}
+
+func (s *Server) handleToggleOutput(w http.ResponseWriter, r *http.Request) {
+	idx, err := strconv.Atoi(r.PathValue("idx"))
+	if err != nil || idx < 0 || idx >= len(s.outputConfigs) {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid output index"})
+		return
+	}
+
+	s.outputConfigs[idx].Enabled = !s.outputConfigs[idx].Enabled
+	if s.fullConfig != nil {
+		s.fullConfig.Outputs = s.outputConfigs
+	}
+	if err := config.SaveOutputs(s.configPath, s.outputConfigs); err != nil {
+		s.log.Error().Err(err).Msg("failed to save outputs")
+	}
+
+	status := "disabled"
+	if s.outputConfigs[idx].Enabled {
+		status = "enabled"
+	}
+	s.log.Info().Int("index", idx).Str("status", status).Msg("output toggled via API")
+	s.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Output " + status + ". Restart required to apply.",
+		"enabled": s.outputConfigs[idx].Enabled,
 	})
 }

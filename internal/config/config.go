@@ -1,13 +1,53 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+// ManagedOutputsFile returns the path to the managed outputs JSON file,
+// derived from the main config file path.
+func ManagedOutputsFile(configPath string) string {
+	dir := filepath.Dir(configPath)
+	return filepath.Join(dir, "managed-outputs.json")
+}
+
+// SaveOutputs persists the output configurations to a JSON file.
+func SaveOutputs(configPath string, outputs []OutputConfig) error {
+	path := ManagedOutputsFile(configPath)
+	data, err := json.MarshalIndent(outputs, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling outputs: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("writing outputs file %s: %w", path, err)
+	}
+	return nil
+}
+
+// LoadManagedOutputs reads the managed outputs JSON file if it exists.
+// Returns nil if the file does not exist.
+func LoadManagedOutputs(configPath string) ([]OutputConfig, error) {
+	path := ManagedOutputsFile(configPath)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading outputs file %s: %w", path, err)
+	}
+	var outputs []OutputConfig
+	if err := json.Unmarshal(data, &outputs); err != nil {
+		return nil, fmt.Errorf("parsing outputs file %s: %w", path, err)
+	}
+	return outputs, nil
+}
 
 // Config is the root configuration structure for the SNMP Manager.
 type Config struct {
@@ -322,7 +362,7 @@ func validate(cfg *Config) error {
 		if !out.Enabled {
 			continue
 		}
-		validTypes := map[string]bool{"syslog": true, "kafka": true, "http": true, "file": true, "stdout": true}
+		validTypes := map[string]bool{"syslog": true, "kafka": true, "http": true, "file": true, "stdout": true, "tcp": true, "elasticsearch": true}
 		if !validTypes[out.Type] {
 			return fmt.Errorf("output #%d: invalid type %q", i+1, out.Type)
 		}

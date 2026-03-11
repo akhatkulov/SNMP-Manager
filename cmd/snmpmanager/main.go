@@ -73,7 +73,16 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load devices")
 	}
 
-	// 3. Build outputs
+	// 3. Build outputs — check for UI-managed overrides first
+	managedOutputs, err := config.LoadManagedOutputs(*configFile)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to load managed outputs, using config defaults")
+	}
+	if managedOutputs != nil {
+		log.Info().Int("count", len(managedOutputs)).Msg("loaded UI-managed output configuration")
+		cfg.Outputs = managedOutputs
+	}
+
 	var outputs []pipeline.Output
 	for _, outCfg := range cfg.Outputs {
 		if !outCfg.Enabled {
@@ -151,7 +160,7 @@ func main() {
 	trapListener := trap.NewListener(log, cfg.TrapReceiver, registry, resolver, pipe)
 
 	// 7. API Server
-	apiServer := api.NewServer(log, cfg.API, registry, resolver, poll, trapListener, pipe, cfg.Outputs)
+	apiServer := api.NewServer(log, cfg.API, cfg, *configFile, registry, resolver, poll, trapListener, pipe, cfg.Outputs)
 
 	// ── Start all components ───────────────────────────────────────
 
