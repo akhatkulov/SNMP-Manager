@@ -73,7 +73,9 @@ func NewPipeline(log zerolog.Logger, cfg PipelineConfig, normalizer *Normalizer,
 }
 
 // Submit adds a raw event to the pipeline for processing.
+// Blocks briefly if the buffer is full rather than dropping events immediately.
 func (p *Pipeline) Submit(event *SNMPEvent) bool {
+	// Try non-blocking first
 	select {
 	case p.rawCh <- event:
 		p.mu.Lock()
@@ -81,10 +83,22 @@ func (p *Pipeline) Submit(event *SNMPEvent) bool {
 		p.mu.Unlock()
 		return true
 	default:
+	}
+
+	// Buffer full — block with a timeout rather than dropping
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case p.rawCh <- event:
+		p.mu.Lock()
+		p.eventsIn++
+		p.mu.Unlock()
+		return true
+	case <-timer.C:
 		p.mu.Lock()
 		p.eventsDropped++
 		p.mu.Unlock()
-		p.log.Warn().Str("event_id", event.ID).Msg("pipeline buffer full, event dropped")
 		return false
 	}
 }

@@ -53,6 +53,9 @@ type Device struct {
 	SysUpTime string `json:"sys_uptime,omitempty"`
 	Vendor    string `json:"vendor,omitempty"`
 	DeviceType string `json:"device_type,omitempty"`
+
+	// Interface index → name cache (populated during polls)
+	IfIndexMap map[string]string `json:"-"`
 }
 
 // NewDeviceFromConfig creates a Device from a configuration entry.
@@ -73,6 +76,7 @@ func NewDeviceFromConfig(cfg config.DeviceConfig) *Device {
 		Enabled:      enabled,
 		PollInterval: cfg.PollInterval,
 		Status:       StatusUnknown,
+		IfIndexMap:   make(map[string]string),
 	}
 }
 

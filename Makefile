@@ -1,4 +1,4 @@
-.PHONY: build run test clean docker
+.PHONY: build run test clean docker up down logs
 
 # Variables
 APP_NAME := snmp-manager
@@ -55,6 +55,33 @@ docker-run: docker-build
 		-v $(PWD)/logs:/var/log/snmp-manager \
 		$(APP_NAME):latest
 
+## up: Docker Compose bilan ishga tushirish
+up:
+	@mkdir -p logs
+	docker compose up -d --build
+	@echo "✅ SNMP Manager ishga tushdi"
+	@echo "   📡 API:     http://localhost:8080"
+	@echo "   📊 Metrics: http://localhost:9090/metrics"
+	@echo "   📝 Loglar:  ./logs/snmp-events.log"
+
+## down: Docker Compose to'xtatish
+down:
+	docker compose down
+	@echo "🛑 SNMP Manager to'xtatildi"
+
+## logs: Docker loglarini ko'rish (real-time)
+logs:
+	docker compose logs -f snmp-manager
+
+## restart: Qayta ishga tushirish
+restart:
+	docker compose restart snmp-manager
+	@echo "🔄 SNMP Manager qayta ishga tushdi"
+
+## status: Konteyner holatini ko'rish
+status:
+	docker compose ps
+
 ## tidy: Tidy go modules
 tidy:
 	go mod tidy
@@ -65,3 +92,4 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@grep -E '^## ' Makefile | sed 's/## /  /'
+

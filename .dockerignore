@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build artifacts
+bin/
+coverage.out
+coverage.html
+
+# Logs (mount qilinadi, image ichiga kerak emas)
+logs/
+
+# Docker
+docker-compose.yml
+.dockerignore
+
+# Docs
+docs/
+README.md
+
+# Environment
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Gemini
+.gemini/

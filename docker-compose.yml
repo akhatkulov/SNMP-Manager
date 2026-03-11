@@ -1,0 +1,63 @@
+# ──────────────────────────────────────────────────────────────────────
+#  SNMP Manager — Docker Compose
+#
+#  Ishga tushirish:   docker compose up -d
+#  Loglarni ko'rish:  docker compose logs -f snmp-manager
+#  To'xtatish:        docker compose down
+#
+#  Loglar:  ./logs/ papkasiga yoziladi (mount qilingan)
+#  Config:  ./configs/config.docker.yaml dan o'qiladi
+# ──────────────────────────────────────────────────────────────────────
+
+services:
+  snmp-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: snmp-manager
+    restart: unless-stopped
+
+    # ── Portlar ──────────────────────────────────────────────────────
+    ports:
+      - "162:162/udp"       # SNMP Trap Receiver
+      - "8080:8080"         # REST API + Web UI
+      - "9090:9090"         # Prometheus Metrics
+
+    # ── Volume mount'lar ─────────────────────────────────────────────
+    volumes:
+      # Loglar — host mashinaga yoziladi
+      - ./logs:/var/log/snmp-manager
+
+      # Config faylini tashqaridan boshqarish (ixtiyoriy)
+      # Agar config ni o'zgartirsangiz, konteyner restart qiling
+      - ./configs/config.docker.yaml:/etc/snmp-manager/config.yaml:ro
+
+      # MIB fayllar (ixtiyoriy — yangi MIB qo'shsangiz rebuild shart emas)
+      - ./mibs:/usr/share/snmp/mibs:ro
+
+    # ── Muhit o'zgaruvchilari ────────────────────────────────────────
+    environment:
+      - TZ=Asia/Tashkent
+
+    # ── Network ──────────────────────────────────────────────────────
+    networks:
+      - snmp-net
+
+    # ── Healthcheck ──────────────────────────────────────────────────
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    # ── Logging (Docker daemon loglari) ──────────────────────────────
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  snmp-net:
+    driver: bridge

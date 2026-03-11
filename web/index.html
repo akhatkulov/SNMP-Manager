@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SNMP Manager — Admin Panel</title>
+    <meta name="description" content="SNMP Manager Admin Dashboard for device monitoring and management">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Ambient Background -->
+    <div class="ambient-bg">
+        <div class="ambient-orb orb-1"></div>
+        <div class="ambient-orb orb-2"></div>
+        <div class="ambient-orb orb-3"></div>
+    </div>
+
+    <!-- Login Overlay -->
+    <div class="modal-overlay" id="loginOverlay">
+        <div class="modal modal-sm" style="max-width:400px;">
+            <div class="modal-header" style="justify-content:center; border-bottom:none; padding-bottom:0;">
+                <div style="text-align:center;">
+                    <div class="logo-icon" style="width:48px;height:48px;margin:0 auto 12px;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                    </div>
+                    <h2 style="font-size:1.4rem;">SNMP Manager</h2>
+                    <p class="text-muted" style="font-size:0.85rem;">Sign in to admin panel</p>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="loginUsername">Username</label>
+                    <input type="text" id="loginUsername" placeholder="admin" autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Password</label>
+                    <input type="password" id="loginPassword" placeholder="••••••" autocomplete="current-password">
+                </div>
+                <div id="loginError" style="color:var(--accent-red); font-size:0.85rem; min-height:20px; margin-bottom:4px;"></div>
+            </div>
+            <div class="modal-footer" style="border-top:none; padding-top:0;">
+                <button class="btn btn-primary" id="loginBtn" style="width:100%;">Sign In</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                    </svg>
+                </div>
+                <div class="logo-text">
+                    <span class="logo-title">SNMP Manager</span>
+                    <span class="logo-subtitle">Admin Panel</span>
+                </div>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="#" class="nav-item active" data-page="dashboard" id="nav-dashboard">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                <span>Dashboard</span>
+            </a>
+            <a href="#" class="nav-item" data-page="devices" id="nav-devices">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                <span>Devices</span>
+            </a>
+            <a href="#" class="nav-item" data-page="traps" id="nav-traps">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                <span>Traps</span>
+            </a>
+            <a href="#" class="nav-item" data-page="mibs" id="nav-mibs">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                <span>MIBs</span>
+            </a>
+            <a href="#" class="nav-item" data-page="settings" id="nav-settings">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                <span>Settings</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="server-status" id="serverStatus">
+                <div class="status-dot status-checking"></div>
+                <span>Connecting...</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content" id="mainContent">
+        <!-- Header -->
+        <header class="topbar">
+            <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+            <div class="topbar-right">
+                <div class="api-key-indicator" id="apiKeyIndicator" title="Click to change API key">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                    <span>API Key</span>
+                </div>
+                <div class="refresh-btn" id="refreshBtn" title="Refresh data">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                </div>
+                <div class="refresh-btn" id="logoutBtn" title="Logout" style="color:var(--accent-red);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                </div>
+            </div>
+        </header>
+
+        <!-- Pages -->
+        <div class="page active" id="page-dashboard">
+            <div class="page-header">
+                <h1>Dashboard</h1>
+                <p class="page-subtitle">Real-time SNMP infrastructure overview</p>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="stats-grid" id="statsGrid">
+                <div class="stat-card" id="statTotal">
+                    <div class="stat-icon stat-icon-blue">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statTotalValue">-</span>
+                        <span class="stat-label">Total Devices</span>
+                    </div>
+                </div>
+                <div class="stat-card" id="statUp">
+                    <div class="stat-icon stat-icon-green">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statUpValue">-</span>
+                        <span class="stat-label">Up / Online</span>
+                    </div>
+                </div>
+                <div class="stat-card" id="statDown">
+                    <div class="stat-icon stat-icon-red">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statDownValue">-</span>
+                        <span class="stat-label">Down / Error</span>
+                    </div>
+                </div>
+                <div class="stat-card" id="statPolls">
+                    <div class="stat-icon stat-icon-purple">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statPollsValue">-</span>
+                        <span class="stat-label">Total Polls</span>
+                    </div>
+                </div>
+                <div class="stat-card" id="statTraps">
+                    <div class="stat-icon stat-icon-orange">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statTrapsValue">-</span>
+                        <span class="stat-label">Traps Received</span>
+                    </div>
+                </div>
+                <div class="stat-card" id="statUptime">
+                    <div class="stat-icon stat-icon-teal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="statUptimeValue">-</span>
+                        <span class="stat-label">Uptime</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Poll Progress (real-time) -->
+            <div id="pollProgressContainer" style="display:none;"></div>
+
+            <!-- Device Quick List -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>Device Overview</h2>
+                    <button class="btn btn-primary btn-sm" id="dashAddDeviceBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Add Device
+                    </button>
+                </div>
+                <div class="table-responsive" id="dashDeviceTable">
+                    <div class="loading-state">
+                        <div class="spinner"></div>
+                        <p>Loading devices...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Devices Page -->
+        <div class="page" id="page-devices">
+            <div class="page-header">
+                <h1>Devices</h1>
+                <p class="page-subtitle">SNMP device management</p>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="search-box">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input type="text" placeholder="Search devices..." id="deviceSearch">
+                    </div>
+                    <button class="btn btn-primary" id="addDeviceBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Add Device
+                    </button>
+                </div>
+                <div class="table-responsive" id="devicesTableContainer">
+                    <div class="loading-state">
+                        <div class="spinner"></div>
+                        <p>Loading devices...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Traps Page -->
+        <div class="page" id="page-traps">
+            <div class="page-header">
+                <h1>Trap Receiver</h1>
+                <p class="page-subtitle">SNMP trap monitoring</p>
+            </div>
+            <div class="stats-grid stats-grid-3">
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon-orange">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="trapTotalValue">-</span>
+                        <span class="stat-label">Total Traps</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon-green">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="trapProcessedValue">-</span>
+                        <span class="stat-label">Processed</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon-red">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="trapErrorsValue">-</span>
+                        <span class="stat-label">Errors</span>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Trap Information</h2>
+                </div>
+                <div class="card-body">
+                    <div class="info-grid" id="trapInfoGrid">
+                        <div class="loading-state">
+                            <div class="spinner"></div>
+                            <p>Loading trap info...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pipeline Stats -->
+            <div class="card">
+                <div class="card-header"><h2>Pipeline Statistics</h2></div>
+                <div class="card-body" id="pipelineStatsContainer">
+                    <div class="loading-state"><div class="spinner"></div><p>Loading pipeline stats...</p></div>
+                </div>
+            </div>
+
+            <!-- Recent Logs -->
+            <div class="card">
+                <div class="card-header"><h2>Recent SNMP Events</h2></div>
+                <div class="card-body" id="recentLogsContainer">
+                    <div class="loading-state"><div class="spinner"></div><p>Loading logs...</p></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MIBs Page -->
+        <div class="page" id="page-mibs">
+            <div class="page-header">
+                <h1>MIB Database</h1>
+                <p class="page-subtitle">Management Information Base browser</p>
+            </div>
+            <div class="stats-grid stats-grid-2">
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon-blue">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="mibTotalOids">-</span>
+                        <span class="stat-label">Total OIDs</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon-purple">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="mibTotalGroups">-</span>
+                        <span class="stat-label">OID Groups</span>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>OID Groups</h2>
+                </div>
+                <div class="card-body" id="mibGroupsContainer">
+                    <div class="loading-state">
+                        <div class="spinner"></div>
+                        <p>Loading MIB groups...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>OID Lookup</h2>
+                </div>
+                <div class="card-body">
+                    <div class="oid-lookup">
+                        <div class="search-box search-box-lg">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <input type="text" placeholder="Enter OID (e.g. 1.3.6.1.2.1.1.1)" id="oidLookupInput">
+                        </div>
+                        <button class="btn btn-primary" id="oidLookupBtn">Resolve</button>
+                    </div>
+                    <div id="oidResult" class="oid-result hidden"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Page -->
+        <div class="page" id="page-settings">
+            <div class="page-header">
+                <h1>Settings</h1>
+                <p class="page-subtitle">Output destinations & configuration</p>
+            </div>
+
+            <!-- Output Destinations -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>Output Destinations</h2>
+                    <span class="text-muted" style="font-size:0.85rem;">Configured in config.yaml</span>
+                </div>
+                <div class="card-body" id="outputsContainer">
+                    <div class="loading-state"><div class="spinner"></div><p>Loading outputs...</p></div>
+                </div>
+            </div>
+
+            <!-- Config Examples -->
+            <div class="card">
+                <div class="card-header"><h2>Output Configuration Examples</h2></div>
+                <div class="card-body">
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">📁 File</span>
+                            <code style="font-size:0.8rem;">type: file, path: ./logs/snmp-events.log</code>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">🔗 Logstash HTTP</span>
+                            <code style="font-size:0.8rem;">type: http, url: http://logstash:8080</code>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">🔌 Logstash TCP</span>
+                            <code style="font-size:0.8rem;">type: tcp, address: logstash:5044</code>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">🔍 Elasticsearch</span>
+                            <code style="font-size:0.8rem;">type: elasticsearch, index: snmp-events</code>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">📡 Syslog/SIEM</span>
+                            <code style="font-size:0.8rem;">type: syslog, address: siem:514, format: cef</code>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">🖥️ Console</span>
+                            <code style="font-size:0.8rem;">type: stdout (development only)</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Add/Edit Device Modal -->
+    <div class="modal-overlay" id="deviceModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="modalTitle">Add Device</h2>
+                <button class="modal-close" id="modalClose" aria-label="Close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <form id="deviceForm">
+                <div class="modal-body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="devName">Device Name *</label>
+                            <input type="text" id="devName" placeholder="e.g. Router-01" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="devIP">IP Address *</label>
+                            <input type="text" id="devIP" placeholder="e.g. 192.168.1.1" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="devPort">Port</label>
+                            <input type="number" id="devPort" value="161" min="1" max="65535">
+                        </div>
+                        <div class="form-group">
+                            <label for="devVersion">SNMP Version</label>
+                            <select id="devVersion">
+                                <option value="v2c" selected>SNMPv2c</option>
+                                <option value="v1">SNMPv1</option>
+                                <option value="v3">SNMPv3</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group" id="communityGroup">
+                        <label for="devCommunity">Community String *</label>
+                        <input type="text" id="devCommunity" placeholder="e.g. public">
+                    </div>
+
+                    <!-- SNMPv3 Credentials -->
+                    <div id="v3CredentialsGroup" class="hidden">
+                        <div class="form-divider">SNMPv3 Credentials</div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="devV3User">Username *</label>
+                                <input type="text" id="devV3User" placeholder="snmpuser">
+                            </div>
+                            <div class="form-group">
+                                <label for="devV3AuthProto">Auth Protocol</label>
+                                <select id="devV3AuthProto">
+                                    <option value="SHA256">SHA256</option>
+                                    <option value="SHA">SHA</option>
+                                    <option value="MD5">MD5</option>
+                                    <option value="SHA512">SHA512</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="devV3AuthPass">Auth Passphrase *</label>
+                            <input type="password" id="devV3AuthPass" placeholder="Authentication passphrase">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="devV3PrivProto">Privacy Protocol</label>
+                                <select id="devV3PrivProto">
+                                    <option value="AES256">AES256</option>
+                                    <option value="AES">AES128</option>
+                                    <option value="DES">DES</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="devV3PrivPass">Privacy Passphrase *</label>
+                                <input type="password" id="devV3PrivPass" placeholder="Privacy passphrase">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="devPollInterval">Poll Interval</label>
+                            <select id="devPollInterval">
+                                <option value="15s">15 seconds</option>
+                                <option value="30s">30 seconds</option>
+                                <option value="60s" selected>1 minute</option>
+                                <option value="120s">2 minutes</option>
+                                <option value="300s">5 minutes</option>
+                                <option value="600s">10 minutes</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="devEnabled">Status</label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="devEnabled" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-label">Enabled</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>OID Groups</label>
+                        <div class="checkbox-grid" id="oidGroupCheckboxes">
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="system" checked> system
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="interfaces"> interfaces
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="cpu_memory"> cpu_memory
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="trap"> trap
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="devTagLocation">Location Tag</label>
+                            <input type="text" id="devTagLocation" placeholder="e.g. DC-Tashkent">
+                        </div>
+                        <div class="form-group">
+                            <label for="devTagCriticality">Criticality</label>
+                            <select id="devTagCriticality">
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="high" selected>High</option>
+                                <option value="critical">Critical</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost" id="modalCancelBtn">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="modalSubmitBtn">Add Device</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div class="modal-overlay" id="deleteModal">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <h2>Delete Device</h2>
+                <button class="modal-close" id="deleteModalClose" aria-label="Close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="delete-warning">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <p>Are you sure you want to delete <strong id="deleteDeviceName"></strong>?</p>
+                    <p class="text-muted">This action cannot be undone. The device will be removed from monitoring.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" id="deleteCancelBtn">Cancel</button>
+                <button class="btn btn-danger" id="deleteConfirmBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Key Modal -->
+    <div class="modal-overlay" id="apiKeyModal">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <h2>API Key</h2>
+                <button class="modal-close" id="apiKeyModalClose" aria-label="Close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="apiKeyInput">Enter your API key</label>
+                    <input type="password" id="apiKeyInput" placeholder="dev-api-key-change-me">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" id="apiKeyCancelBtn">Cancel</button>
+                <button class="btn btn-primary" id="apiKeySaveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

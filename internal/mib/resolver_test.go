@@ -154,7 +154,7 @@ func TestResolverGetOIDsForGroup(t *testing.T) {
 		{"interfaces", 10},
 		{"cpu_memory", 5},
 		{"trap", 4},
-		{"host", 5},
+		{"host", 2},
 	}
 
 	for _, tt := range tests {

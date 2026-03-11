@@ -1,5 +1,5 @@
 # Multi-stage build for minimal production image
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
@@ -22,14 +22,24 @@ RUN apk --no-cache add ca-certificates tzdata && \
     adduser -S snmpmanager -G snmpmanager
 
 # Create directories
-RUN mkdir -p /etc/snmp-manager /var/lib/snmp-manager/mibs /var/log/snmp-manager && \
-    chown -R snmpmanager:snmpmanager /var/lib/snmp-manager /var/log/snmp-manager
+RUN mkdir -p /etc/snmp-manager /usr/share/snmp/mibs /var/log/snmp-manager /app/web && \
+    chown -R snmpmanager:snmpmanager /usr/share/snmp /var/log/snmp-manager /app
 
-# Copy binary and files
+WORKDIR /app
+
+# Copy binary
 COPY --from=builder /snmp-manager /usr/local/bin/snmp-manager
-COPY configs/config.yaml /etc/snmp-manager/config.yaml
 
-# Ports
+# Copy config (docker-specific)
+COPY configs/config.docker.yaml /etc/snmp-manager/config.yaml
+
+# Copy MIB files
+COPY mibs/ /usr/share/snmp/mibs/
+
+# Copy web UI (to ./web relative to WORKDIR /app)
+COPY web/ /app/web/
+
+# Ports: SNMP Trap (162/udp), API (8080), Metrics (9090)
 EXPOSE 162/udp 8080 9090
 
 USER snmpmanager

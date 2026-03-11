@@ -1,10 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,6 +47,9 @@ func newTestServer() (*Server, *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/stats", s.withAuth(s.handleStats))
 	mux.HandleFunc("GET /api/v1/devices", s.withAuth(s.handleListDevices))
 	mux.HandleFunc("GET /api/v1/devices/{name}", s.withAuth(s.handleGetDevice))
+	mux.HandleFunc("POST /api/v1/devices", s.withAuth(s.handleAddDevice))
+	mux.HandleFunc("PUT /api/v1/devices/{name}", s.withAuth(s.handleUpdateDevice))
+	mux.HandleFunc("DELETE /api/v1/devices/{name}", s.withAuth(s.handleDeleteDevice))
 	mux.HandleFunc("GET /api/v1/mibs/groups", s.withAuth(s.handleListMIBGroups))
 	mux.HandleFunc("GET /api/v1/mibs/resolve/{oid}", s.withAuth(s.handleResolveOID))
 	mux.HandleFunc("GET /api/v1/mibs/count", s.withAuth(s.handleMIBCount))
@@ -53,7 +58,18 @@ func newTestServer() (*Server, *http.ServeMux) {
 }
 
 func doRequest(mux http.Handler, method, path, apiKey string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, path, nil)
+	return doRequestWithBody(mux, method, path, apiKey, "")
+}
+
+func doRequestWithBody(mux http.Handler, method, path, apiKey, body string) *httptest.ResponseRecorder {
+	var bodyReader io.Reader
+	if body != "" {
+		bodyReader = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, path, bodyReader)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if apiKey != "" {
 		req.Header.Set("X-API-Key", apiKey)
 	}
@@ -295,3 +311,137 @@ func TestCORSHeaders(t *testing.T) {
 		t.Errorf("OPTIONS status: want 200, got %d", w.Code)
 	}
 }
+
+// ── Device Management (Add/Update/Delete) ──────────────────────────
+
+func TestAddDevice(t *testing.T) {
+	_, mux := newTestServer()
+
+	body, _ := json.Marshal(map[string]any{
+		"name":         "new-fw",
+		"ip":           "192.168.1.100",
+		"snmp_version": "v2c",
+		"community":    "public",
+		"poll_interval": "30s",
+		"oid_groups":   []string{"system", "interfaces"},
+		"tags": map[string]string{
+			"location":    "DC-Tashkent",
+			"criticality": "medium",
+		},
+	})
+
+	w := doRequestWithBody(mux, "POST", "/api/v1/devices", "test-key", string(body))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status: want 201, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	result := parseJSON(t, w)
+	if result["device"] != "new-fw" {
+		t.Errorf("device: want %q, got %v", "new-fw", result["device"])
+	}
+
+	// Verify device appears in list
+	w2 := doRequest(mux, "GET", "/api/v1/devices", "test-key")
+	result2 := parseJSON(t, w2)
+	if result2["count"].(float64) != 3 {
+		t.Errorf("count after add: want 3, got %v", result2["count"])
+	}
+}
+
+func TestAddDeviceDuplicate(t *testing.T) {
+	_, mux := newTestServer()
+
+	body, _ := json.Marshal(map[string]any{
+		"name":      "test-router",
+		"ip":        "10.0.0.99",
+		"community": "public",
+	})
+
+	w := doRequestWithBody(mux, "POST", "/api/v1/devices", "test-key", string(body))
+	if w.Code != http.StatusConflict {
+		t.Errorf("duplicate: want 409, got %d", w.Code)
+	}
+}
+
+func TestAddDeviceMissingFields(t *testing.T) {
+	_, mux := newTestServer()
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"no name", `{"ip":"1.2.3.4","community":"x"}`},
+		{"no ip", `{"name":"foo","community":"x"}`},
+		{"v2c no community", `{"name":"foo","ip":"1.2.3.4","snmp_version":"v2c"}`},
+		{"v3 no creds", `{"name":"foo","ip":"1.2.3.4","snmp_version":"v3"}`},
+	}
+
+	for _, tc := range tests {
+		w := doRequestWithBody(mux, "POST", "/api/v1/devices", "test-key", tc.body)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s: want 400, got %d", tc.name, w.Code)
+		}
+	}
+}
+
+func TestUpdateDevice(t *testing.T) {
+	_, mux := newTestServer()
+
+	body, _ := json.Marshal(map[string]any{
+		"community":    "new-community",
+		"poll_interval": "120s",
+	})
+
+	w := doRequestWithBody(mux, "PUT", "/api/v1/devices/test-router", "test-key", string(body))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: want 200, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	result := parseJSON(t, w)
+	if result["message"] != "device updated successfully" {
+		t.Errorf("message: got %v", result["message"])
+	}
+}
+
+func TestUpdateDeviceNotFound(t *testing.T) {
+	_, mux := newTestServer()
+
+	w := doRequestWithBody(mux, "PUT", "/api/v1/devices/nonexistent", "test-key", `{"community":"x"}`)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status: want 404, got %d", w.Code)
+	}
+}
+
+func TestDeleteDevice(t *testing.T) {
+	_, mux := newTestServer()
+
+	w := doRequestWithBody(mux, "DELETE", "/api/v1/devices/test-switch", "test-key", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: want 200, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify device is gone
+	w2 := doRequest(mux, "GET", "/api/v1/devices/test-switch", "test-key")
+	if w2.Code != http.StatusNotFound {
+		t.Errorf("after delete: want 404, got %d", w2.Code)
+	}
+
+	// Verify count
+	w3 := doRequest(mux, "GET", "/api/v1/devices", "test-key")
+	result := parseJSON(t, w3)
+	if result["count"].(float64) != 1 {
+		t.Errorf("count after delete: want 1, got %v", result["count"])
+	}
+}
+
+func TestDeleteDeviceNotFound(t *testing.T) {
+	_, mux := newTestServer()
+
+	w := doRequestWithBody(mux, "DELETE", "/api/v1/devices/nonexistent", "test-key", "")
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status: want 404, got %d", w.Code)
+	}
+}
+
+// Ensure unused imports don't error
+var _ = bytes.NewBuffer

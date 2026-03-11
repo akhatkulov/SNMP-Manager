@@ -59,6 +59,12 @@ func main() {
 
 	// 1. MIB Resolver
 	resolver := mib.NewResolver(log)
+
+	// Load system MIB files via gosmi (adds thousands of OID translations)
+	if cfg.MIB.LoadSystemMIBs {
+		resolver.LoadSystemMIBs(cfg.MIB.Directories...)
+	}
+
 	log.Info().Int("oids", resolver.Count()).Msg("MIB resolver initialized")
 
 	// 2. Device Registry
@@ -96,6 +102,29 @@ func main() {
 			out := output.NewStdoutOutput(log)
 			outputs = append(outputs, out)
 			log.Info().Msg("stdout output configured")
+
+		case "http":
+			url := outCfg.URL
+			if url == "" {
+				url = outCfg.Address
+			}
+			out := output.NewHTTPOutput(log, url, outCfg.Headers, outCfg.TLSSkipVerify)
+			outputs = append(outputs, out)
+			log.Info().Str("url", url).Msg("http output configured")
+
+		case "elasticsearch":
+			addrs := outCfg.Addresses
+			if len(addrs) == 0 && outCfg.Address != "" {
+				addrs = []string{outCfg.Address}
+			}
+			out := output.NewElasticsearchOutput(log, addrs, outCfg.Index, outCfg.Username, outCfg.Password, outCfg.TLSSkipVerify)
+			outputs = append(outputs, out)
+			log.Info().Strs("addresses", addrs).Str("index", outCfg.Index).Msg("elasticsearch output configured")
+
+		case "tcp":
+			out := output.NewTCPOutput(log, outCfg.Address)
+			outputs = append(outputs, out)
+			log.Info().Str("address", outCfg.Address).Msg("tcp output configured")
 		}
 	}
 
@@ -122,7 +151,7 @@ func main() {
 	trapListener := trap.NewListener(log, cfg.TrapReceiver, registry, resolver, pipe)
 
 	// 7. API Server
-	apiServer := api.NewServer(log, cfg.API, registry, resolver, poll, trapListener, pipe)
+	apiServer := api.NewServer(log, cfg.API, registry, resolver, poll, trapListener, pipe, cfg.Outputs)
 
 	// ── Start all components ───────────────────────────────────────
 

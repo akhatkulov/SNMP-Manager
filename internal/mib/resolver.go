@@ -126,97 +126,14 @@ func (r *Resolver) ListGroups() []string {
 	return result
 }
 
-// loadBuiltinMIBs loads the essential MIB entries for SIEM monitoring.
+// loadBuiltinMIBs loads the comprehensive MIB database.
 func (r *Resolver) loadBuiltinMIBs() {
-	entries := []OIDEntry{
-		// ─── SNMPv2-MIB (System) ─────────────────────────────────────
-		{OID: "1.3.6.1.2.1.1.1", Name: "sysDescr", Module: "SNMPv2-MIB", Description: "System description", Syntax: "DisplayString", Access: "read-only", Category: "system"},
-		{OID: "1.3.6.1.2.1.1.2", Name: "sysObjectID", Module: "SNMPv2-MIB", Description: "System object identifier", Syntax: "OBJECT IDENTIFIER", Access: "read-only", Category: "system"},
-		{OID: "1.3.6.1.2.1.1.3", Name: "sysUpTime", Module: "SNMPv2-MIB", Description: "System uptime in timeticks", Syntax: "TimeTicks", Access: "read-only", Category: "system"},
-		{OID: "1.3.6.1.2.1.1.4", Name: "sysContact", Module: "SNMPv2-MIB", Description: "System contact person", Syntax: "DisplayString", Access: "read-write", Category: "system"},
-		{OID: "1.3.6.1.2.1.1.5", Name: "sysName", Module: "SNMPv2-MIB", Description: "System hostname", Syntax: "DisplayString", Access: "read-write", Category: "system"},
-		{OID: "1.3.6.1.2.1.1.6", Name: "sysLocation", Module: "SNMPv2-MIB", Description: "System physical location", Syntax: "DisplayString", Access: "read-write", Category: "system"},
-		{OID: "1.3.6.1.2.1.1.7", Name: "sysServices", Module: "SNMPv2-MIB", Description: "System services", Syntax: "INTEGER", Access: "read-only", Category: "system"},
-
-		// ─── IF-MIB (Interfaces) ─────────────────────────────────────
-		{OID: "1.3.6.1.2.1.2.1", Name: "ifNumber", Module: "IF-MIB", Description: "Number of network interfaces", Syntax: "INTEGER", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.2.2.1.1", Name: "ifIndex", Module: "IF-MIB", Description: "Interface index", Syntax: "InterfaceIndex", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.2.2.1.2", Name: "ifDescr", Module: "IF-MIB", Description: "Interface description", Syntax: "DisplayString", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.2.2.1.3", Name: "ifType", Module: "IF-MIB", Description: "Interface type", Syntax: "IANAifType", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.2.2.1.5", Name: "ifSpeed", Module: "IF-MIB", Description: "Interface speed (bps)", Syntax: "Gauge32", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.2.2.1.7", Name: "ifAdminStatus", Module: "IF-MIB", Description: "Interface admin status", Syntax: "INTEGER", Access: "read-write", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.2.2.1.8", Name: "ifOperStatus", Module: "IF-MIB", Description: "Interface operational status", Syntax: "INTEGER", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.2.2.1.10", Name: "ifInOctets", Module: "IF-MIB", Description: "Incoming octets", Syntax: "Counter32", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.2.2.1.13", Name: "ifInDiscards", Module: "IF-MIB", Description: "Incoming discarded packets", Syntax: "Counter32", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.2.2.1.14", Name: "ifInErrors", Module: "IF-MIB", Description: "Incoming error packets", Syntax: "Counter32", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.2.2.1.16", Name: "ifOutOctets", Module: "IF-MIB", Description: "Outgoing octets", Syntax: "Counter32", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.2.2.1.19", Name: "ifOutDiscards", Module: "IF-MIB", Description: "Outgoing discarded packets", Syntax: "Counter32", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.2.2.1.20", Name: "ifOutErrors", Module: "IF-MIB", Description: "Outgoing error packets", Syntax: "Counter32", Access: "read-only", Category: "interfaces"},
-
-		// IF-MIB (64-bit counters)
-		{OID: "1.3.6.1.2.1.31.1.1.1.6", Name: "ifHCInOctets", Module: "IF-MIB", Description: "Incoming octets (64-bit)", Syntax: "Counter64", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.31.1.1.1.10", Name: "ifHCOutOctets", Module: "IF-MIB", Description: "Outgoing octets (64-bit)", Syntax: "Counter64", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.31.1.1.1.1", Name: "ifName", Module: "IF-MIB", Description: "Interface short name", Syntax: "DisplayString", Access: "read-only", Category: "interfaces"},
-		{OID: "1.3.6.1.2.1.31.1.1.1.18", Name: "ifAlias", Module: "IF-MIB", Description: "Interface alias", Syntax: "DisplayString", Access: "read-write", Category: "interfaces"},
-
-		// ─── HOST-RESOURCES-MIB (CPU, Memory, Storage) ───────────────
-		{OID: "1.3.6.1.2.1.25.1.1", Name: "hrSystemUptime", Module: "HOST-RESOURCES-MIB", Description: "Host uptime", Syntax: "TimeTicks", Access: "read-only", Category: "host"},
-		{OID: "1.3.6.1.2.1.25.1.6", Name: "hrSystemProcesses", Module: "HOST-RESOURCES-MIB", Description: "Number of processes", Syntax: "Gauge32", Access: "read-only", Category: "host"},
-		{OID: "1.3.6.1.2.1.25.2.2", Name: "hrMemorySize", Module: "HOST-RESOURCES-MIB", Description: "Total memory (KB)", Syntax: "INTEGER", Access: "read-only", Category: "host"},
-		{OID: "1.3.6.1.2.1.25.2.3.1.2", Name: "hrStorageType", Module: "HOST-RESOURCES-MIB", Description: "Storage type", Syntax: "OBJECT IDENTIFIER", Access: "read-only", Category: "host"},
-		{OID: "1.3.6.1.2.1.25.2.3.1.3", Name: "hrStorageDescr", Module: "HOST-RESOURCES-MIB", Description: "Storage description", Syntax: "DisplayString", Access: "read-only", Category: "host"},
-		{OID: "1.3.6.1.2.1.25.2.3.1.4", Name: "hrStorageAllocationUnits", Module: "HOST-RESOURCES-MIB", Description: "Storage allocation unit size", Syntax: "INTEGER", Access: "read-only", Category: "host"},
-		{OID: "1.3.6.1.2.1.25.2.3.1.5", Name: "hrStorageSize", Module: "HOST-RESOURCES-MIB", Description: "Storage total size", Syntax: "INTEGER", Access: "read-only", Category: "host"},
-		{OID: "1.3.6.1.2.1.25.2.3.1.6", Name: "hrStorageUsed", Module: "HOST-RESOURCES-MIB", Description: "Storage used space", Syntax: "INTEGER", Access: "read-only", Category: "host"},
-		{OID: "1.3.6.1.2.1.25.3.3.1.2", Name: "hrProcessorLoad", Module: "HOST-RESOURCES-MIB", Description: "CPU load percentage", Syntax: "INTEGER", Access: "read-only", Category: "cpu_memory"},
-
-		// ─── UCD-SNMP-MIB (Linux specific) ───────────────────────────
-		{OID: "1.3.6.1.4.1.2021.4.3", Name: "memTotalSwap", Module: "UCD-SNMP-MIB", Description: "Total swap space (KB)", Syntax: "INTEGER", Access: "read-only", Category: "cpu_memory"},
-		{OID: "1.3.6.1.4.1.2021.4.4", Name: "memAvailSwap", Module: "UCD-SNMP-MIB", Description: "Available swap space (KB)", Syntax: "INTEGER", Access: "read-only", Category: "cpu_memory"},
-		{OID: "1.3.6.1.4.1.2021.4.5", Name: "memTotalReal", Module: "UCD-SNMP-MIB", Description: "Total real memory (KB)", Syntax: "INTEGER", Access: "read-only", Category: "cpu_memory"},
-		{OID: "1.3.6.1.4.1.2021.4.6", Name: "memAvailReal", Module: "UCD-SNMP-MIB", Description: "Available real memory (KB)", Syntax: "INTEGER", Access: "read-only", Category: "cpu_memory"},
-		{OID: "1.3.6.1.4.1.2021.4.11", Name: "memTotalFree", Module: "UCD-SNMP-MIB", Description: "Total free memory (KB)", Syntax: "INTEGER", Access: "read-only", Category: "cpu_memory"},
-		{OID: "1.3.6.1.4.1.2021.4.14", Name: "memBuffer", Module: "UCD-SNMP-MIB", Description: "Buffer memory (KB)", Syntax: "INTEGER", Access: "read-only", Category: "cpu_memory"},
-		{OID: "1.3.6.1.4.1.2021.4.15", Name: "memCached", Module: "UCD-SNMP-MIB", Description: "Cached memory (KB)", Syntax: "INTEGER", Access: "read-only", Category: "cpu_memory"},
-		{OID: "1.3.6.1.4.1.2021.10.1.3.1", Name: "laLoad1", Module: "UCD-SNMP-MIB", Description: "1 minute load average", Syntax: "DisplayString", Access: "read-only", Category: "cpu_memory"},
-		{OID: "1.3.6.1.4.1.2021.10.1.3.2", Name: "laLoad5", Module: "UCD-SNMP-MIB", Description: "5 minute load average", Syntax: "DisplayString", Access: "read-only", Category: "cpu_memory"},
-		{OID: "1.3.6.1.4.1.2021.10.1.3.3", Name: "laLoad15", Module: "UCD-SNMP-MIB", Description: "15 minute load average", Syntax: "DisplayString", Access: "read-only", Category: "cpu_memory"},
-		{OID: "1.3.6.1.4.1.2021.11.9", Name: "ssCpuUser", Module: "UCD-SNMP-MIB", Description: "CPU user time %", Syntax: "INTEGER", Access: "read-only", Category: "cpu_memory"},
-		{OID: "1.3.6.1.4.1.2021.11.10", Name: "ssCpuSystem", Module: "UCD-SNMP-MIB", Description: "CPU system time %", Syntax: "INTEGER", Access: "read-only", Category: "cpu_memory"},
-		{OID: "1.3.6.1.4.1.2021.11.11", Name: "ssCpuIdle", Module: "UCD-SNMP-MIB", Description: "CPU idle time %", Syntax: "INTEGER", Access: "read-only", Category: "cpu_memory"},
-
-		// ─── IP-MIB ──────────────────────────────────────────────────
-		{OID: "1.3.6.1.2.1.4.3", Name: "ipInReceives", Module: "IP-MIB", Description: "IP datagrams received", Syntax: "Counter32", Access: "read-only", Category: "ip"},
-		{OID: "1.3.6.1.2.1.4.10", Name: "ipInDelivers", Module: "IP-MIB", Description: "IP datagrams delivered", Syntax: "Counter32", Access: "read-only", Category: "ip"},
-		{OID: "1.3.6.1.2.1.4.20.1.1", Name: "ipAdEntAddr", Module: "IP-MIB", Description: "IP address entry", Syntax: "IpAddress", Access: "read-only", Category: "ip"},
-
-		// ─── TCP/UDP ─────────────────────────────────────────────────
-		{OID: "1.3.6.1.2.1.6.5", Name: "tcpActiveOpens", Module: "TCP-MIB", Description: "Active TCP connections opened", Syntax: "Counter32", Access: "read-only", Category: "tcp"},
-		{OID: "1.3.6.1.2.1.6.9", Name: "tcpCurrEstab", Module: "TCP-MIB", Description: "Current TCP connections", Syntax: "Gauge32", Access: "read-only", Category: "tcp"},
-		{OID: "1.3.6.1.2.1.7.1", Name: "udpInDatagrams", Module: "UDP-MIB", Description: "UDP datagrams received", Syntax: "Counter32", Access: "read-only", Category: "udp"},
-
-		// ─── SNMP Traps (Standard) ───────────────────────────────────
-		{OID: "1.3.6.1.6.3.1.1.5.1", Name: "coldStart", Module: "SNMPv2-MIB", Description: "Device cold start (full restart)", Syntax: "NOTIFICATION-TYPE", Category: "trap"},
-		{OID: "1.3.6.1.6.3.1.1.5.2", Name: "warmStart", Module: "SNMPv2-MIB", Description: "Device warm start (software restart)", Syntax: "NOTIFICATION-TYPE", Category: "trap"},
-		{OID: "1.3.6.1.6.3.1.1.5.3", Name: "linkDown", Module: "IF-MIB", Description: "Interface link down", Syntax: "NOTIFICATION-TYPE", Category: "trap"},
-		{OID: "1.3.6.1.6.3.1.1.5.4", Name: "linkUp", Module: "IF-MIB", Description: "Interface link up", Syntax: "NOTIFICATION-TYPE", Category: "trap"},
-		{OID: "1.3.6.1.6.3.1.1.5.5", Name: "authenticationFailure", Module: "SNMPv2-MIB", Description: "SNMP authentication failure", Syntax: "NOTIFICATION-TYPE", Category: "trap"},
-
-		// ─── ENTITY-MIB (Hardware) ───────────────────────────────────
-		{OID: "1.3.6.1.2.1.47.1.1.1.1.2", Name: "entPhysicalDescr", Module: "ENTITY-MIB", Description: "Physical entity description", Syntax: "DisplayString", Access: "read-only", Category: "entity"},
-		{OID: "1.3.6.1.2.1.47.1.1.1.1.7", Name: "entPhysicalName", Module: "ENTITY-MIB", Description: "Physical entity name", Syntax: "DisplayString", Access: "read-only", Category: "entity"},
-		{OID: "1.3.6.1.2.1.47.1.1.1.1.11", Name: "entPhysicalSerialNum", Module: "ENTITY-MIB", Description: "Physical entity serial number", Syntax: "DisplayString", Access: "read-write", Category: "entity"},
-		{OID: "1.3.6.1.2.1.47.1.1.1.1.13", Name: "entPhysicalModelName", Module: "ENTITY-MIB", Description: "Physical entity model", Syntax: "DisplayString", Access: "read-only", Category: "entity"},
-
-		// ─── SNMP Engine ─────────────────────────────────────────────
-		{OID: "1.3.6.1.6.3.10.2.1.1", Name: "snmpEngineID", Module: "SNMP-FRAMEWORK-MIB", Description: "SNMP engine ID", Syntax: "OCTET STRING", Access: "read-only", Category: "snmp_engine"},
-		{OID: "1.3.6.1.6.3.10.2.1.3", Name: "snmpEngineTime", Module: "SNMP-FRAMEWORK-MIB", Description: "SNMP engine uptime", Syntax: "INTEGER", Access: "read-only", Category: "snmp_engine"},
-	}
+	entries := GetExtendedMIBDatabase()
 
 	for _, entry := range entries {
 		r.oidToName[entry.OID] = entry
 		r.nameToOID[entry.Name] = entry.OID
 	}
 
-	r.log.Info().Int("oids", len(entries)).Msg("built-in MIB entries loaded")
+	r.log.Info().Int("oids", len(entries)).Msg("MIB database loaded")
 }

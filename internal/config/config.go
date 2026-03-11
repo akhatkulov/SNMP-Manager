@@ -123,6 +123,16 @@ type OutputConfig struct {
 	MaxBackups int            `yaml:"max_backups,omitempty"`
 	Compress  bool            `yaml:"compress,omitempty"`
 	Headers   map[string]string `yaml:"headers,omitempty"`
+
+	// HTTP output (Logstash HTTP input, webhooks)
+	URL           string `yaml:"url,omitempty"`
+	TLSSkipVerify bool   `yaml:"tls_skip_verify,omitempty"`
+
+	// Elasticsearch output
+	Addresses []string `yaml:"addresses,omitempty"`
+	Index     string   `yaml:"index,omitempty"`
+	Username  string   `yaml:"username,omitempty"`
+	Password  string   `yaml:"password,omitempty"`
 }
 
 // TLSConfig holds TLS certificate paths.
@@ -135,15 +145,22 @@ type TLSConfig struct {
 
 // APIConfig controls the REST API server.
 type APIConfig struct {
-	Enabled       bool     `yaml:"enabled"`
-	ListenAddress string   `yaml:"listen_address"`
-	Auth          AuthConfig `yaml:"auth"`
+	Enabled       bool           `yaml:"enabled"`
+	ListenAddress string         `yaml:"listen_address"`
+	Auth          AuthConfig     `yaml:"auth"`
+	AdminPanel    AdminPanelConfig `yaml:"admin_panel"`
 }
 
 // AuthConfig holds API authentication settings.
 type AuthConfig struct {
 	Type string   `yaml:"type"`
 	Keys []string `yaml:"keys"`
+}
+
+// AdminPanelConfig holds admin panel login credentials.
+type AdminPanelConfig struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 // MetricsConfig controls Prometheus metrics exposure.
@@ -155,7 +172,8 @@ type MetricsConfig struct {
 
 // MIBConfig controls MIB file loading.
 type MIBConfig struct {
-	Directories []string `yaml:"directories"`
+	Directories    []string `yaml:"directories"`
+	LoadSystemMIBs bool     `yaml:"load_system_mibs"`
 }
 
 // Load reads a YAML configuration file and returns a validated Config.

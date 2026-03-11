@@ -3,6 +3,7 @@ package pipeline
 import (
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/rs/zerolog"
 
@@ -11,8 +12,10 @@ import (
 
 // Normalizer resolves OIDs to names, classifies events, and assigns severity.
 type Normalizer struct {
-	resolver *mib.Resolver
-	log      zerolog.Logger
+	resolver     *mib.Resolver
+	log          zerolog.Logger
+	dnsCache     map[string]string
+	dnsCacheMu   sync.RWMutex
 }
 
 // NewNormalizer creates a new event normalizer.
@@ -20,18 +23,25 @@ func NewNormalizer(resolver *mib.Resolver, log zerolog.Logger) *Normalizer {
 	return &Normalizer{
 		resolver: resolver,
 		log:      log.With().Str("component", "normalizer").Logger(),
+		dnsCache: make(map[string]string),
 	}
 }
 
 // Process normalizes a raw SNMP event in-place.
 func (n *Normalizer) Process(event *SNMPEvent) {
 	// Resolve main OID
-	if event.SNMP.OIDName == "" && event.SNMP.OID != "" {
+	if event.SNMP.OID != "" {
 		entry, found := n.resolver.Resolve(event.SNMP.OID)
 		if found {
-			event.SNMP.OIDName = entry.Name
-			event.SNMP.OIDModule = entry.Module
-		} else {
+			if event.SNMP.OIDName == "" {
+				event.SNMP.OIDName = entry.Name
+			}
+			if event.SNMP.OIDModule == "" {
+				event.SNMP.OIDModule = entry.Module
+			}
+			event.SNMP.OIDDescription = entry.Description
+			event.SNMP.OIDSyntax = entry.Syntax
+		} else if event.SNMP.OIDName == "" {
 			event.SNMP.OIDName = event.SNMP.OID
 		}
 	}
@@ -51,12 +61,9 @@ func (n *Normalizer) Process(event *SNMPEvent) {
 		event.SNMP.ValueString = fmt.Sprintf("%v", event.SNMP.Value)
 	}
 
-	// Resolve hostname from IP
+	// Resolve hostname from IP (cached)
 	if event.Source.Hostname == "" && event.Source.IP != "" {
-		names, err := net.LookupAddr(event.Source.IP)
-		if err == nil && len(names) > 0 {
-			event.Source.Hostname = names[0]
-		}
+		event.Source.Hostname = n.lookupHost(event.Source.IP)
 	}
 
 	// Classify severity based on OID and event type
@@ -154,4 +161,29 @@ func toLower(s string) string {
 		}
 	}
 	return string(b)
+}
+
+// lookupHost resolves an IP to a hostname with caching.
+func (n *Normalizer) lookupHost(ip string) string {
+	// Check cache first
+	n.dnsCacheMu.RLock()
+	if host, ok := n.dnsCache[ip]; ok {
+		n.dnsCacheMu.RUnlock()
+		return host
+	}
+	n.dnsCacheMu.RUnlock()
+
+	// DNS lookup (slow)
+	host := ""
+	names, err := net.LookupAddr(ip)
+	if err == nil && len(names) > 0 {
+		host = names[0]
+	}
+
+	// Store in cache
+	n.dnsCacheMu.Lock()
+	n.dnsCache[ip] = host
+	n.dnsCacheMu.Unlock()
+
+	return host
 }

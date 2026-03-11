@@ -81,16 +81,18 @@ type SourceInfo struct {
 
 // SNMPData holds the raw and resolved SNMP information.
 type SNMPData struct {
-	Version     string     `json:"version"`
-	Community   string     `json:"-"` // never expose community strings
-	OID         string     `json:"oid"`
-	OIDName     string     `json:"oid_name"`
-	OIDModule   string     `json:"oid_module,omitempty"`
-	Value       any        `json:"value"`
-	ValueType   string     `json:"value_type"`
-	ValueString string     `json:"value_string"`
-	RequestType string     `json:"request_type"`
-	Variables   []Variable `json:"variables,omitempty"`
+	Version        string     `json:"version"`
+	Community      string     `json:"-"` // never expose community strings
+	OID            string     `json:"oid"`
+	OIDName        string     `json:"oid_name"`
+	OIDModule      string     `json:"oid_module,omitempty"`
+	OIDDescription string     `json:"oid_description,omitempty"`
+	OIDSyntax      string     `json:"oid_syntax,omitempty"`
+	Value          any        `json:"value"`
+	ValueType      string     `json:"value_type"`
+	ValueString    string     `json:"value_string"`
+	RequestType    string     `json:"request_type"`
+	Variables      []Variable `json:"variables,omitempty"`
 }
 
 // Variable represents a single SNMP variable binding.

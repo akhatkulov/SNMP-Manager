@@ -33,6 +33,23 @@ type Poller struct {
 	mu          sync.RWMutex
 	totalPolls  int64
 	totalErrors int64
+
+	// Per-device poll progress tracking
+	progressMu sync.RWMutex
+	progress   map[string]*PollProgress
+}
+
+// PollProgress tracks the real-time progress of a device poll.
+type PollProgress struct {
+	Device     string    `json:"device"`
+	Polling    bool      `json:"polling"`
+	CurrentOID string    `json:"current_oid"`
+	Progress   int       `json:"progress"`
+	Total      int       `json:"total"`
+	Percent    float64   `json:"percent"`
+	StartedAt  time.Time `json:"started_at"`
+	Elapsed    string    `json:"elapsed"`
+	PDUsFound  int       `json:"pdus_found"`
 }
 
 type pollJob struct {
@@ -48,6 +65,58 @@ func New(log zerolog.Logger, cfg config.PollerConfig, registry *device.Registry,
 		resolver: resolver,
 		pipe:     pipe,
 		jobCh:    make(chan *pollJob, cfg.Workers*2),
+		progress: make(map[string]*PollProgress),
+	}
+}
+
+// GetProgress returns the current poll progress for all devices.
+func (p *Poller) GetProgress() map[string]*PollProgress {
+	p.progressMu.RLock()
+	defer p.progressMu.RUnlock()
+
+	result := make(map[string]*PollProgress, len(p.progress))
+	for k, v := range p.progress {
+		copy := *v
+		if copy.Polling {
+			copy.Elapsed = time.Since(copy.StartedAt).Round(time.Millisecond).String()
+		}
+		result[k] = &copy
+	}
+	return result
+}
+
+func (p *Poller) setProgress(device string, oidName string, current, total, pdus int) {
+	p.progressMu.Lock()
+	defer p.progressMu.Unlock()
+
+	prog, ok := p.progress[device]
+	if !ok {
+		prog = &PollProgress{
+			Device:    device,
+			StartedAt: time.Now(),
+		}
+		p.progress[device] = prog
+	}
+	prog.Polling = true
+	prog.CurrentOID = oidName
+	prog.Progress = current
+	prog.Total = total
+	prog.PDUsFound = pdus
+	if total > 0 {
+		prog.Percent = float64(current) / float64(total) * 100
+	}
+}
+
+func (p *Poller) clearProgress(device string) {
+	p.progressMu.Lock()
+	defer p.progressMu.Unlock()
+
+	if prog, ok := p.progress[device]; ok {
+		prog.Polling = false
+		prog.Progress = prog.Total
+		prog.Percent = 100
+		prog.CurrentOID = "done"
+		prog.Elapsed = time.Since(prog.StartedAt).Round(time.Millisecond).String()
 	}
 }
 
@@ -118,7 +187,7 @@ func (p *Poller) worker(ctx context.Context, id int) {
 		default:
 		}
 
-		events, err := p.doPoll(ctx, job.device)
+		_, err := p.doPoll(ctx, job.device)
 		if err != nil {
 			p.mu.Lock()
 			p.totalErrors++
@@ -126,10 +195,7 @@ func (p *Poller) worker(ctx context.Context, id int) {
 			continue
 		}
 
-		// Submit events to pipeline
-		for _, event := range events {
-			p.pipe.Submit(event)
-		}
+		// Events are already submitted to pipeline in doPoll (streaming)
 
 		p.mu.Lock()
 		p.totalPolls++
@@ -140,6 +206,18 @@ func (p *Poller) worker(ctx context.Context, id int) {
 // doPoll performs the actual SNMP poll on a device.
 func (p *Poller) doPoll(ctx context.Context, dev *device.Device) ([]*pipeline.SNMPEvent, error) {
 	start := time.Now()
+
+	// Initialize progress tracking
+	p.progressMu.Lock()
+	p.progress[dev.Name] = &PollProgress{
+		Device:    dev.Name,
+		Polling:   true,
+		StartedAt: time.Now(),
+	}
+	p.progressMu.Unlock()
+	defer p.clearProgress(dev.Name)
+
+	p.log.Info().Str("device", dev.Name).Str("ip", dev.IP).Msg("polling device...")
 
 	snmpClient, err := p.createSNMPClient(dev)
 	if err != nil {
@@ -164,37 +242,127 @@ func (p *Poller) doPoll(ctx context.Context, dev *device.Device) ([]*pipeline.SN
 
 	var events []*pipeline.SNMPEvent
 
-	// Poll in batches
-	for i := 0; i < len(oids); i += p.cfg.MaxOIDsPerRequest {
-		end := i + p.cfg.MaxOIDsPerRequest
-		if end > len(oids) {
-			end = len(oids)
+	// Separate scalar OIDs (system-level, get with .0) from table OIDs (need walk)
+	var scalarOids []string
+	var tableOids []string
+	for _, oid := range oids {
+		if isScalarOID(oid) {
+			scalarOids = append(scalarOids, oid)
+		} else {
+			tableOids = append(tableOids, oid)
 		}
-		batch := oids[i:end]
+	}
 
-		// Prepend dots for gosnmp
-		dotOids := make([]string, len(batch))
-		for j, oid := range batch {
-			if !strings.HasPrefix(oid, ".") {
-				dotOids[j] = "." + oid
-			} else {
-				dotOids[j] = oid
+	// --- Poll scalar OIDs with GET (appending .0 instance) ---
+	if len(scalarOids) > 0 {
+		for i := 0; i < len(scalarOids); i += p.cfg.MaxOIDsPerRequest {
+			end := i + p.cfg.MaxOIDsPerRequest
+			if end > len(scalarOids) {
+				end = len(scalarOids)
 			}
-		}
+			batch := scalarOids[i:end]
 
-		result, err := snmpClient.Get(dotOids)
-		if err != nil {
-			p.log.Warn().Err(err).Str("device", dev.Name).Int("batch", i/p.cfg.MaxOIDsPerRequest).Msg("SNMP GET failed")
-			continue
-		}
+			dotOids := make([]string, len(batch))
+			for j, oid := range batch {
+				o := oid
+				if !strings.HasPrefix(o, ".") {
+					o = "." + o
+				}
+				// Append .0 for scalar instance
+				if !strings.HasSuffix(o, ".0") {
+					o = o + ".0"
+				}
+				dotOids[j] = o
+			}
 
-		for _, variable := range result.Variables {
-			if variable.Type == gosnmp.NoSuchObject || variable.Type == gosnmp.NoSuchInstance {
+			result, err := snmpClient.Get(dotOids)
+			if err != nil {
+				p.log.Warn().Err(err).Str("device", dev.Name).Msg("SNMP GET (scalar) failed")
 				continue
 			}
 
-			event := p.variableToEvent(dev, &variable)
+			for _, variable := range result.Variables {
+				if variable.Type == gosnmp.NoSuchObject || variable.Type == gosnmp.NoSuchInstance {
+					continue
+				}
+				event := p.variableToEvent(dev, &variable)
+				events = append(events, event)
+				// Stream immediately to pipeline
+				p.pipe.Submit(event)
+			}
+		}
+	}
+
+	// --- Poll table OIDs with BulkWalk ---
+	// OID prefixes for interface name resolution
+	ifNamePrefix := ".1.3.6.1.2.1.31.1.1.1.1."   // ifName
+	ifDescrPrefix := ".1.3.6.1.2.1.2.2.1.2."      // ifDescr
+	totalPDUs := len(events) // count scalar events already collected
+
+	for i, oid := range tableOids {
+		walkOid := oid
+		if !strings.HasPrefix(walkOid, ".") {
+			walkOid = "." + walkOid
+		}
+
+		// Resolve OID name for logging
+		oidLabel := walkOid
+		if entry, ok := p.resolver.Resolve(oid); ok {
+			oidLabel = entry.Name
+		}
+
+		// Update real-time progress
+		p.setProgress(dev.Name, oidLabel, i+1, len(tableOids), totalPDUs)
+
+		p.log.Info().
+			Str("device", dev.Name).
+			Str("oid", oidLabel).
+			Int("progress", i+1).
+			Int("total", len(tableOids)).
+			Msg("walking table OID")
+
+		walkStart := time.Now()
+		pduCount := 0
+
+		err := snmpClient.BulkWalk(walkOid, func(pdu gosnmp.SnmpPDU) error {
+			if pdu.Type == gosnmp.NoSuchObject || pdu.Type == gosnmp.NoSuchInstance {
+				return nil
+			}
+
+			// Cache ifName / ifDescr for interface index resolution
+			pduOid := pdu.Name
+			if strings.HasPrefix(pduOid, ifNamePrefix) {
+				idx := pduOid[len(ifNamePrefix):]
+				if name, ok := pdu.Value.([]byte); ok && len(name) > 0 {
+					dev.IfIndexMap[idx] = string(name)
+				} else if name, ok := pdu.Value.(string); ok && len(name) > 0 {
+					dev.IfIndexMap[idx] = name
+				}
+			} else if strings.HasPrefix(pduOid, ifDescrPrefix) {
+				idx := pduOid[len(ifDescrPrefix):]
+				if _, exists := dev.IfIndexMap[idx]; !exists {
+					if name, ok := pdu.Value.([]byte); ok && len(name) > 0 {
+						dev.IfIndexMap[idx] = string(name)
+					} else if name, ok := pdu.Value.(string); ok && len(name) > 0 {
+						dev.IfIndexMap[idx] = name
+					}
+				}
+			}
+
+			event := p.variableToEvent(dev, &pdu)
 			events = append(events, event)
+			pduCount++
+			totalPDUs++
+			// Stream immediately to pipeline — don't wait for entire walk
+			p.pipe.Submit(event)
+			return nil
+		})
+
+		walkDur := time.Since(walkStart)
+		if err != nil {
+			p.log.Warn().Err(err).Str("device", dev.Name).Str("oid", oidLabel).Dur("took", walkDur).Msg("SNMP BulkWalk failed")
+		} else {
+			p.log.Info().Str("device", dev.Name).Str("oid", oidLabel).Int("pdus", pduCount).Dur("took", walkDur).Msg("BulkWalk completed")
 		}
 	}
 
@@ -204,13 +372,40 @@ func (p *Poller) doPoll(ctx context.Context, dev *device.Device) ([]*pipeline.SN
 	latency := time.Since(start)
 	dev.UpdateStatus(device.StatusUp, latency, nil)
 
-	p.log.Debug().
+	p.log.Info().
 		Str("device", dev.Name).
 		Int("events", len(events)).
 		Dur("latency", latency).
-		Msg("poll completed")
+		Msg("✅ poll completed")
 
 	return events, nil
+}
+
+// isScalarOID returns true if the OID is a scalar (single-instance) value.
+// Scalar OIDs are typically under .1.3.6.1.2.1.1 (system group) and similar
+// non-table OIDs that return a single value when queried with GET + .0.
+func isScalarOID(oid string) bool {
+	oid = strings.TrimPrefix(oid, ".")
+	scalarPrefixes := []string{
+		"1.3.6.1.2.1.1.",      // system group (sysDescr, sysUpTime, etc.)
+		"1.3.6.1.2.1.2.1",     // ifNumber (scalar)
+		"1.3.6.1.2.1.4.3",     // ipInReceives
+		"1.3.6.1.2.1.4.10",    // ipInDelivers
+		"1.3.6.1.2.1.6.5",     // tcpActiveOpens
+		"1.3.6.1.2.1.6.9",     // tcpCurrEstab
+		"1.3.6.1.2.1.7.1",     // udpInDatagrams
+		"1.3.6.1.2.1.25.1.",   // hrSystem (scalar)
+		"1.3.6.1.2.1.25.2.2",  // hrMemorySize (scalar)
+		"1.3.6.1.4.1.2021.4.", // UCD memory (scalar)
+		"1.3.6.1.4.1.2021.10.", // UCD load (scalar)
+		"1.3.6.1.4.1.2021.11.", // UCD CPU (scalar)
+	}
+	for _, prefix := range scalarPrefixes {
+		if strings.HasPrefix(oid, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // createSNMPClient creates a gosnmp client for the given device.
@@ -256,6 +451,26 @@ func (p *Poller) createSNMPClient(dev *device.Device) (*gosnmp.GoSNMP, error) {
 func (p *Poller) variableToEvent(dev *device.Device, v *gosnmp.SnmpPDU) *pipeline.SNMPEvent {
 	value, valueType := extractValue(v)
 
+	oid := strings.TrimPrefix(v.Name, ".")
+
+	// Resolve OID to human name
+	var oidName, oidModule string
+	entry, found := p.resolver.Resolve(oid)
+	if found {
+		oidName = entry.Name
+		oidModule = entry.Module
+
+		// Translate interface index in OID name to actual interface name
+		// e.g. "ifHCInMulticastPkts.305" → "ifHCInMulticastPkts[gi0/49]"
+		if dot := strings.IndexByte(oidName, '.'); dot > 0 {
+			baseName := oidName[:dot]
+			instance := oidName[dot+1:]
+			if ifName, ok := dev.IfIndexMap[instance]; ok {
+				oidName = fmt.Sprintf("%s[%s]", baseName, ifName)
+			}
+		}
+	}
+
 	event := &pipeline.SNMPEvent{
 		ID:        uuid.New().String(),
 		Timestamp: time.Now(),
@@ -266,12 +481,16 @@ func (p *Poller) variableToEvent(dev *device.Device, v *gosnmp.SnmpPDU) *pipelin
 			Hostname:   dev.SysName,
 			DeviceType: dev.DeviceType,
 			Vendor:     dev.Vendor,
+			SysName:    dev.SysName,
 		},
 		SNMP: pipeline.SNMPData{
 			Version:     dev.SNMPVersion,
-			OID:         strings.TrimPrefix(v.Name, "."),
+			OID:         oid,
+			OIDName:     oidName,
+			OIDModule:   oidModule,
 			Value:       value,
 			ValueType:   valueType,
+			ValueString: fmt.Sprintf("%v", value),
 			RequestType: "get",
 		},
 	}
