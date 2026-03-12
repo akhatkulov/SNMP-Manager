@@ -19,23 +19,27 @@ import (
 	"github.com/me262/snmp-manager/internal/mib"
 	"github.com/me262/snmp-manager/internal/pipeline"
 	"github.com/me262/snmp-manager/internal/poller"
+	"github.com/me262/snmp-manager/internal/store"
 	"github.com/me262/snmp-manager/internal/trap"
 )
 
 // Server provides a REST API for managing and monitoring the SNMP Manager.
 type Server struct {
-	log           zerolog.Logger
-	cfg           config.APIConfig
-	fullConfig    *config.Config
-	configPath    string
-	registry      *device.Registry
-	resolver      *mib.Resolver
-	poller        *poller.Poller
-	trap          *trap.Listener
-	pipe          *pipeline.Pipeline
-	server        *http.Server
-	startTime     time.Time
-	outputConfigs []config.OutputConfig
+	log             zerolog.Logger
+	cfg             config.APIConfig
+	fullConfig      *config.Config
+	configPath      string
+	registry        *device.Registry
+	resolver        *mib.Resolver
+	poller          *poller.Poller
+	trap            *trap.Listener
+	pipe            *pipeline.Pipeline
+	server          *http.Server
+	startTime       time.Time
+	outputConfigs   []config.OutputConfig
+	esStore         *store.ElasticsearchStore
+	statsHistory    *store.StatsHistory
+	outputInstances []pipeline.Output
 }
 
 // NewServer creates a new API server.
@@ -63,7 +67,18 @@ func NewServer(
 		pipe:          pipe,
 		startTime:     time.Now(),
 		outputConfigs: outputConfigs,
+		statsHistory:  store.NewStatsHistory(360), // 360 points ≈ 1 hour at 10s intervals
 	}
+}
+
+// SetESStore sets the Elasticsearch store for event querying.
+func (s *Server) SetESStore(es *store.ElasticsearchStore) {
+	s.esStore = es
+}
+
+// SetOutputInstances stores output references for buffer stats.
+func (s *Server) SetOutputInstances(outputs []pipeline.Output) {
+	s.outputInstances = outputs
 }
 
 // Run starts the API server. Blocks until context is cancelled.
@@ -97,6 +112,11 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("PATCH /api/v1/config/outputs/{idx}/toggle", s.withAuth(s.handleToggleOutput))
 	mux.HandleFunc("GET /api/v1/config/server", s.withAuth(s.handleGetServerConfig))
 	mux.HandleFunc("GET /api/v1/system/info", s.withAuth(s.handleSystemInfo))
+	mux.HandleFunc("GET /api/v1/stats/history", s.withAuth(s.handleStatsHistory))
+	mux.HandleFunc("GET /api/v1/events/search", s.withAuth(s.handleEventSearch))
+	mux.HandleFunc("GET /api/v1/events/stats", s.withAuth(s.handleEventStats))
+	mux.HandleFunc("GET /api/v1/events/timeseries", s.withAuth(s.handleEventTimeSeries))
+	mux.HandleFunc("GET /api/v1/buffer/stats", s.withAuth(s.handleBufferStats))
 
 	// Admin panel auth (no API key required)
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
@@ -127,6 +147,32 @@ func (s *Server) Run(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- s.server.ListenAndServe()
+	}()
+
+	// Stats collector goroutine — snapshots every 10s for dashboard charts
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				var ms runtime.MemStats
+				runtime.ReadMemStats(&ms)
+				devStats := s.registry.Stats()
+				pipeStats := s.pipe.Stats()
+				s.statsHistory.Push(store.StatsSnapshot{
+					Timestamp:  time.Now(),
+					EventsIn:   pipeStats.EventsIn,
+					EventsOut:  pipeStats.EventsOut,
+					Goroutines: runtime.NumGoroutine(),
+					MemoryMB:   float64(ms.Alloc) / 1024 / 1024,
+					DevicesUp:  devStats.Up,
+					DevicesErr: devStats.Error,
+				})
+			}
+		}
 	}()
 
 	select {
@@ -966,5 +1012,125 @@ func (s *Server) handleToggleOutput(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "Output " + status + ". Restart required to apply.",
 		"enabled": s.outputConfigs[idx].Enabled,
+	})
+}
+
+// ── Charts & Events ──────────────────────────────────────────────────
+
+func (s *Server) handleStatsHistory(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, http.StatusOK, s.statsHistory.FormatForChart())
+}
+
+func (s *Server) handleEventSearch(w http.ResponseWriter, r *http.Request) {
+	if s.esStore == nil {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Elasticsearch not configured"})
+		return
+	}
+
+	params := store.SearchParams{
+		Query:     r.URL.Query().Get("q"),
+		Severity:  r.URL.Query().Get("severity"),
+		DeviceIP:  r.URL.Query().Get("device_ip"),
+		EventType: r.URL.Query().Get("event_type"),
+		TimeFrom:  r.URL.Query().Get("time_from"),
+		TimeTo:    r.URL.Query().Get("time_to"),
+		SortField: r.URL.Query().Get("sort"),
+		SortOrder: r.URL.Query().Get("order"),
+	}
+	if v := r.URL.Query().Get("from"); v != "" {
+		fmt.Sscanf(v, "%d", &params.From)
+	}
+	if v := r.URL.Query().Get("size"); v != "" {
+		fmt.Sscanf(v, "%d", &params.Size)
+	}
+
+	result, err := s.esStore.Search(r.Context(), params)
+	if err != nil {
+		s.writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleEventStats(w http.ResponseWriter, r *http.Request) {
+	if s.esStore == nil {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Elasticsearch not configured"})
+		return
+	}
+	stats, err := s.esStore.EventStats(r.Context())
+	if err != nil {
+		s.writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, stats)
+}
+
+func (s *Server) handleEventTimeSeries(w http.ResponseWriter, r *http.Request) {
+	if s.esStore == nil {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Elasticsearch not configured"})
+		return
+	}
+	interval := r.URL.Query().Get("interval")
+	if interval == "" {
+		interval = "10m"
+	}
+	hours := 6
+	if v := r.URL.Query().Get("hours"); v != "" {
+		fmt.Sscanf(v, "%d", &hours)
+	}
+
+	points, err := s.esStore.GetTimeSeries(r.Context(), interval, hours)
+	if err != nil {
+		s.writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"interval": interval,
+		"hours":    hours,
+		"points":   points,
+	})
+}
+
+func (s *Server) handleBufferStats(w http.ResponseWriter, r *http.Request) {
+	type bufferInfo struct {
+		Name        string      `json:"name"`
+		CircuitOpen bool        `json:"circuit_open"`
+		Sent        int64       `json:"sent"`
+		Buffered    int64       `json:"buffered"`
+		Flushed     int64       `json:"flushed"`
+		Dropped     int64       `json:"dropped"`
+		Errors      int64       `json:"errors"`
+		SpoolBytes  int64       `json:"spool_bytes"`
+		MemBufLen   int         `json:"mem_buf_len"`
+		MemBufCap   int         `json:"mem_buf_cap"`
+		Backoff     string      `json:"backoff"`
+	}
+
+	var buffers []bufferInfo
+	for _, out := range s.outputInstances {
+		// Check if output has a Stats() method (BufferedOutput)
+		type statter interface {
+			Stats() map[string]interface{}
+		}
+		if bo, ok := out.(statter); ok {
+			stats := bo.Stats()
+			buffers = append(buffers, bufferInfo{
+				Name:        fmt.Sprintf("%v", stats["output"]),
+				CircuitOpen: stats["circuit_open"].(bool),
+				Sent:        stats["sent"].(int64),
+				Buffered:    stats["buffered"].(int64),
+				Flushed:     stats["flushed"].(int64),
+				Dropped:     stats["dropped"].(int64),
+				Errors:      stats["errors"].(int64),
+				SpoolBytes:  stats["spool_bytes"].(int64),
+				MemBufLen:   stats["mem_buf_len"].(int),
+				MemBufCap:   stats["mem_buf_cap"].(int),
+				Backoff:     fmt.Sprintf("%v", stats["backoff"]),
+			})
+		}
+	}
+	s.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"buffers": buffers,
+		"total":   len(buffers),
 	})
 }

@@ -85,8 +85,8 @@ func (p *Pipeline) Submit(event *SNMPEvent) bool {
 	default:
 	}
 
-	// Buffer full — block with a timeout rather than dropping
-	timer := time.NewTimer(5 * time.Second)
+	// Buffer full — block briefly, then drop
+	timer := time.NewTimer(200 * time.Millisecond)
 	defer timer.Stop()
 
 	select {

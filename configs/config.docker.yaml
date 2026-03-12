@@ -21,7 +21,7 @@ mib:
 
 # ── SNMP Poller ───────────────────────────────────────────────────────
 poller:
-  workers: 10
+  workers: 1
   default_interval: 60s
   timeout: 5s
   retries: 2
@@ -76,6 +76,14 @@ outputs:
     max_size_mb: 100
     max_backups: 5
     compress: true
+
+  # Elasticsearch — event storage va search uchun
+  - type: "elasticsearch"
+    enabled: true
+    addresses:
+      - "${ES_ADDRESSES}"
+    index: "${ES_INDEX}"
+    tls_skip_verify: true
 
 # ── REST API ──────────────────────────────────────────────────────────
 api:

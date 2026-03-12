@@ -11,7 +11,7 @@ import (
 
 func newTestNormalizer() *Normalizer {
 	resolver := mib.NewResolver(zerolog.Nop())
-	return NewNormalizer(resolver, zerolog.Nop())
+	return NewNormalizer(resolver, zerolog.Nop(), false)
 }
 
 func TestNormalizerOIDResolution(t *testing.T) {
@@ -316,7 +316,7 @@ func TestEnricherPreservesExistingHostname(t *testing.T) {
 // ── Pipeline Integration Tests ───────────────────────────────────────
 
 func TestPipelineSubmitAndStats(t *testing.T) {
-	normalizer := NewNormalizer(mib.NewResolver(zerolog.Nop()), zerolog.Nop())
+	normalizer := NewNormalizer(mib.NewResolver(zerolog.Nop()), zerolog.Nop(), false)
 	enricher := NewEnricher(zerolog.Nop())
 
 	pipe := NewPipeline(zerolog.Nop(), PipelineConfig{

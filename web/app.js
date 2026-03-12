@@ -56,6 +56,7 @@
             case 'dashboard': loadDashboard(); break;
             case 'devices': loadDevices(); break;
             case 'traps': loadTraps(); break;
+            case 'events': loadEvents(); break;
             case 'mibs': loadMIBs(); break;
             case 'settings': loadSettings(); break;
         }
@@ -74,6 +75,7 @@
             $('#statUptimeValue').textContent = formatUptime(stats.uptime || '0s');
             renderDeviceTable(devicesData.devices || [], '#dashDeviceTable', true);
             loadPollProgress();
+            loadDashboardCharts();
             updateServerStatus(true);
         } catch (err) {
             console.error('Dashboard load error:', err);
@@ -269,6 +271,7 @@
     // ── Settings ──────────────────────────────────────────────────────
     function loadSettings() {
         loadOutputs();
+        loadBufferStats();
         loadSystemInfo();
         loadServerConfig();
     }
@@ -366,6 +369,41 @@
                 </div>`;
             }).join('')}</div>`;
         } catch (err) { container.innerHTML = `<div class="empty-state"><p>Error loading outputs: ${err.message}</p></div>`; }
+    }
+
+    async function loadBufferStats() {
+        const container = $('#bufferStatsContainer');
+        if (!container) return;
+        try {
+            const data = await apiCall('GET', '/buffer/stats');
+            const buffers = data.buffers || [];
+            if (!buffers.length) {
+                container.innerHTML = '<div class="empty-state" style="padding:16px;"><p>No buffered outputs</p></div>';
+                return;
+            }
+            container.innerHTML = `<div style="display:grid;gap:12px;">${buffers.map(b => {
+                const dot = b.circuit_open ? '🔴' : '🟢';
+                const status = b.circuit_open ? 'Circuit OPEN — buffering' : 'Connected';
+                const spoolKB = (b.spool_bytes / 1024).toFixed(1);
+                return `<div class="card" style="margin:0;">
+                    <div class="card-body" style="padding:14px 16px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <span style="font-weight:600;">${dot} ${esc(b.name)}</span>
+                            <span class="badge badge-sm" style="background:${b.circuit_open ? 'var(--accent-red-dim)' : 'var(--accent-green-dim)'};color:${b.circuit_open ? 'var(--accent-red)' : 'var(--accent-green)'};">${status}</span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:0.82rem;">
+                            <div><span class="text-muted">Sent</span><br><strong>${formatNumber(b.sent)}</strong></div>
+                            <div><span class="text-muted">Buffered</span><br><strong style="color:${b.buffered > 0 ? 'var(--accent-orange)' : 'inherit'}">${formatNumber(b.buffered)}</strong></div>
+                            <div><span class="text-muted">Flushed</span><br><strong style="color:var(--accent-green);">${formatNumber(b.flushed)}</strong></div>
+                            <div><span class="text-muted">Dropped</span><br><strong style="color:${b.dropped > 0 ? 'var(--accent-red)' : 'inherit'}">${formatNumber(b.dropped)}</strong></div>
+                        </div>
+                        <div style="margin-top:8px;font-size:0.78rem;color:var(--text-muted);">
+                            Spool: ${spoolKB} KB · Memory: ${b.mem_buf_len}/${b.mem_buf_cap < 0 ? '∞' : b.mem_buf_cap} · Backoff: ${b.backoff} · Errors: ${b.errors}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('')}</div>`;
+        } catch (err) { container.innerHTML = `<div class="empty-state"><p>Buffer stats unavailable</p></div>`; }
     }
 
     // ── Output CRUD ───────────────────────────────────────────────────
@@ -702,6 +740,191 @@
         } catch (err) { showToast('Export failed: ' + err.message, 'error'); }
     }
 
+    // ── Dashboard Charts ──────────────────────────────────────────────
+    let chartTrend = null, chartResources = null;
+    const chartDefaults = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'top', labels: { color: '#8b9dc3', font: { family: 'Inter', size: 11 }, boxWidth: 10, padding: 12 } } },
+        scales: {
+            x: { grid: { color: 'rgba(100,120,160,0.08)' }, ticks: { color: '#5a6f8f', font: { size: 10 } } },
+            y: { grid: { color: 'rgba(100,120,160,0.08)' }, ticks: { color: '#5a6f8f', font: { size: 10 } }, beginAtZero: true }
+        },
+        animation: { duration: 600, easing: 'easeOutQuart' }
+    };
+
+    async function loadDashboardCharts() {
+        try {
+            const data = await apiCall('GET', '/stats/history');
+            const labels = data.labels || [];
+            if (!labels.length) return;
+
+            const ctx1 = $('#chartEventsTrend')?.getContext('2d');
+            if (ctx1) {
+                const grad1 = ctx1.createLinearGradient(0, 0, 0, 200);
+                grad1.addColorStop(0, 'rgba(79,143,247,0.3)');
+                grad1.addColorStop(1, 'rgba(79,143,247,0.01)');
+                const grad2 = ctx1.createLinearGradient(0, 0, 0, 200);
+                grad2.addColorStop(0, 'rgba(52,211,153,0.3)');
+                grad2.addColorStop(1, 'rgba(52,211,153,0.01)');
+                if (chartTrend) chartTrend.destroy();
+                chartTrend = new Chart(ctx1, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            { label: 'Events In', data: data.events_in, borderColor: '#4f8ff7', backgroundColor: grad1, fill: true, tension: 0.4, borderWidth: 2, pointRadius: 0 },
+                            { label: 'Events Out', data: data.events_out, borderColor: '#34d399', backgroundColor: grad2, fill: true, tension: 0.4, borderWidth: 2, pointRadius: 0 }
+                        ]
+                    },
+                    options: { ...chartDefaults, interaction: { intersect: false, mode: 'index' } }
+                });
+            }
+
+            const ctx2 = $('#chartResources')?.getContext('2d');
+            if (ctx2) {
+                const gradMem = ctx2.createLinearGradient(0, 0, 0, 200);
+                gradMem.addColorStop(0, 'rgba(167,139,250,0.3)');
+                gradMem.addColorStop(1, 'rgba(167,139,250,0.01)');
+                if (chartResources) chartResources.destroy();
+                chartResources = new Chart(ctx2, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            { label: 'Memory (MB)', data: data.memory_mb, borderColor: '#a78bfa', backgroundColor: gradMem, fill: true, tension: 0.4, borderWidth: 2, pointRadius: 0, yAxisID: 'y' },
+                            { label: 'Goroutines', data: data.goroutines, borderColor: '#fbbf24', backgroundColor: 'transparent', tension: 0.4, borderWidth: 2, pointRadius: 0, yAxisID: 'y1' }
+                        ]
+                    },
+                    options: {
+                        ...chartDefaults,
+                        scales: {
+                            ...chartDefaults.scales,
+                            y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#fbbf24', font: { size: 10 } }, beginAtZero: true }
+                        }
+                    }
+                });
+            }
+        } catch (err) { console.log('Charts not ready yet:', err.message); }
+    }
+
+    // ── Events Page (Elasticsearch) ──────────────────────────────────
+    let chartES = null, esCurrentPage = 0;
+    const ES_PAGE_SIZE = 25;
+
+    async function loadEvents() {
+        loadESStats();
+        loadESTimeline();
+        searchEvents();
+    }
+
+    async function loadESStats() {
+        try {
+            const data = await apiCall('GET', '/events/stats');
+            const hits = data?.hits?.total?.value ?? 0;
+            const aggs = data?.aggregations || {};
+            $('#esStatusValue').textContent = '● Online';
+            $('#esStatusValue').style.color = 'var(--accent-green)';
+            $('#esCountValue').textContent = formatNumber(hits);
+            // events/min estimation
+            const buckets = aggs?.events_over_time?.buckets || [];
+            if (buckets.length >= 2) {
+                const recent = buckets.slice(-6);
+                const avg = recent.reduce((s, b) => s + b.doc_count, 0) / recent.length;
+                $('#esRateValue').textContent = (avg / 60).toFixed(1);
+            }
+        } catch (err) {
+            $('#esStatusValue').textContent = '● Offline';
+            $('#esStatusValue').style.color = 'var(--accent-red)';
+        }
+    }
+
+    async function loadESTimeline() {
+        try {
+            const data = await apiCall('GET', '/events/timeseries?interval=1h&hours=24');
+            const points = data.points || [];
+            if (!points.length) return;
+
+            const ctx = $('#chartESTimeline')?.getContext('2d');
+            if (!ctx) return;
+            const grad = ctx.createLinearGradient(0, 0, 0, 180);
+            grad.addColorStop(0, 'rgba(34,211,238,0.35)');
+            grad.addColorStop(1, 'rgba(34,211,238,0.02)');
+
+            if (chartES) chartES.destroy();
+            chartES = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: points.map(p => p.timestamp?.substring(11, 16) || ''),
+                    datasets: [{
+                        label: 'Events',
+                        data: points.map(p => p.count),
+                        backgroundColor: grad,
+                        borderColor: '#22d3ee',
+                        borderWidth: 1,
+                        borderRadius: 3,
+                        borderSkipped: false,
+                    }]
+                },
+                options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, legend: { display: false } } }
+            });
+        } catch (err) { console.log('ES timeline not available:', err.message); }
+    }
+
+    async function searchEvents(resetPage = true) {
+        if (resetPage) esCurrentPage = 0;
+        const container = $('#esEventsTable');
+        container.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Searching...</p></div>';
+
+        try {
+            const params = new URLSearchParams({
+                q: $('#esSearchInput')?.value || '',
+                severity: $('#esSeverityFilter')?.value || '',
+                event_type: $('#esTypeFilter')?.value || '',
+                from: esCurrentPage * ES_PAGE_SIZE,
+                size: ES_PAGE_SIZE,
+            });
+            const data = await apiCall('GET', `/events/search?${params}`);
+            const events = data.events || [];
+            const total = data.total || 0;
+
+            if (!events.length) {
+                container.innerHTML = '<div class="empty-state"><p>No events found</p></div>';
+                $('#esPagination').innerHTML = '';
+                return;
+            }
+
+            container.innerHTML = `<table class="data-table"><thead><tr>
+                <th>Time</th><th>Device</th><th>Type</th><th>OID</th><th>Value</th><th>Severity</th>
+            </tr></thead><tbody>${events.map(e => {
+                const severity = e.severity || 'info';
+                const sevColor = severity === 'critical' ? 'var(--accent-red)' : severity === 'warning' ? 'var(--accent-orange)' : 'var(--accent-teal)';
+                return `<tr>
+                    <td style="font-size:0.78rem;white-space:nowrap;">${formatTime(e.timestamp)}</td>
+                    <td><span class="mono" style="font-size:0.82rem;">${esc(e.device_ip || e.device_name || '—')}</span></td>
+                    <td><span class="badge badge-sm" style="background:var(--accent-blue-dim);color:var(--accent-blue);">${esc(e.event_type || 'poll')}</span></td>
+                    <td style="font-size:0.78rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${esc(e.oid || '')}">${esc(e.oid_name || e.oid || '—')}</td>
+                    <td style="font-size:0.82rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${esc(String(e.value || ''))}">${esc(String(e.value || '—'))}</td>
+                    <td><span style="color:${sevColor};font-size:0.82rem;font-weight:600;">● ${severity}</span></td>
+                </tr>`;
+            }).join('')}</tbody></table>`;
+
+            // Pagination
+            const totalPages = Math.ceil(total / ES_PAGE_SIZE);
+            $('#esPagination').innerHTML = `
+                <span class="text-muted" style="font-size:0.82rem;">${formatNumber(total)} events found (${data.took_ms || 0}ms)</span>
+                <div class="btn-group">
+                    <button class="btn btn-ghost btn-sm" ${esCurrentPage <= 0 ? 'disabled' : ''} onclick="window._esPage(-1)">← Prev</button>
+                    <span class="text-muted" style="font-size:0.82rem;padding:4px 8px;">${esCurrentPage + 1} / ${totalPages}</span>
+                    <button class="btn btn-ghost btn-sm" ${esCurrentPage >= totalPages - 1 ? 'disabled' : ''} onclick="window._esPage(1)">Next →</button>
+                </div>`;
+        } catch (err) {
+            container.innerHTML = `<div class="empty-state"><p>${esc(err.message)}</p></div>`;
+        }
+    }
+
+    window._esPage = (dir) => { esCurrentPage += dir; searchEvents(false); };
+
     // ── Modal Helpers ─────────────────────────────────────────────────
     function showModal(id) { $(`#${id}`).classList.add('active'); document.body.style.overflow = 'hidden'; }
     function hideModal(id) { $(`#${id}`).classList.remove('active'); document.body.style.overflow = ''; }
@@ -866,6 +1089,12 @@
             const q = e.target.value.toLowerCase();
             $$('#devicesTableContainer tbody tr').forEach(row => { row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none'; });
         });
+
+        // ES Events search
+        $('#esSearchBtn')?.addEventListener('click', () => searchEvents());
+        $('#esSearchInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') searchEvents(); });
+        $('#esSeverityFilter')?.addEventListener('change', () => searchEvents());
+        $('#esTypeFilter')?.addEventListener('change', () => searchEvents());
 
         // Log search
         $('#logSearchInput')?.addEventListener('input', () => renderLogs());

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/me262/snmp-manager/internal/api"
 	"github.com/me262/snmp-manager/internal/config"
@@ -16,6 +17,7 @@ import (
 	"github.com/me262/snmp-manager/internal/output"
 	"github.com/me262/snmp-manager/internal/pipeline"
 	"github.com/me262/snmp-manager/internal/poller"
+	"github.com/me262/snmp-manager/internal/store"
 	"github.com/me262/snmp-manager/internal/telemetry"
 	"github.com/me262/snmp-manager/internal/trap"
 )
@@ -84,6 +86,17 @@ func main() {
 	}
 
 	var outputs []pipeline.Output
+	// Default buffer config for remote outputs (store-and-forward)
+	bufCfg := output.BufferedConfig{
+		MemoryBufferSize: 1000,
+		SpoolDir:         "/tmp/snmp-buffer",
+		MaxSpoolSizeMB:   100,
+		FlushInterval:    5 * time.Second,
+		FlushBatchSize:   50,
+		BackoffBase:      2 * time.Second,
+		BackoffMax:       60 * time.Second,
+	}
+
 	for _, outCfg := range cfg.Outputs {
 		if !outCfg.Enabled {
 			continue
@@ -99,15 +112,18 @@ func main() {
 				format = "cef"
 			}
 			out := output.NewSyslogOutput(log, outCfg.Address, protocol, format)
-			outputs = append(outputs, out)
-			log.Info().Str("address", outCfg.Address).Str("format", format).Msg("syslog output configured")
+			buffered := output.NewBufferedOutput(log, out, bufCfg)
+			outputs = append(outputs, buffered)
+			log.Info().Str("address", outCfg.Address).Str("format", format).Msg("syslog output configured (buffered)")
 
 		case "file":
+			// File output — local, no buffering needed
 			out := output.NewFileOutput(log, outCfg.Path, outCfg.MaxSizeMB, outCfg.MaxBackups, outCfg.Compress)
 			outputs = append(outputs, out)
 			log.Info().Str("path", outCfg.Path).Msg("file output configured")
 
 		case "stdout":
+			// Stdout — local, no buffering needed
 			out := output.NewStdoutOutput(log)
 			outputs = append(outputs, out)
 			log.Info().Msg("stdout output configured")
@@ -118,8 +134,9 @@ func main() {
 				url = outCfg.Address
 			}
 			out := output.NewHTTPOutput(log, url, outCfg.Headers, outCfg.TLSSkipVerify)
-			outputs = append(outputs, out)
-			log.Info().Str("url", url).Msg("http output configured")
+			buffered := output.NewBufferedOutput(log, out, bufCfg)
+			outputs = append(outputs, buffered)
+			log.Info().Str("url", url).Msg("http output configured (buffered)")
 
 		case "elasticsearch":
 			addrs := outCfg.Addresses
@@ -127,13 +144,15 @@ func main() {
 				addrs = []string{outCfg.Address}
 			}
 			out := output.NewElasticsearchOutput(log, addrs, outCfg.Index, outCfg.Username, outCfg.Password, outCfg.TLSSkipVerify)
-			outputs = append(outputs, out)
-			log.Info().Strs("addresses", addrs).Str("index", outCfg.Index).Msg("elasticsearch output configured")
+			buffered := output.NewBufferedOutput(log, out, bufCfg)
+			outputs = append(outputs, buffered)
+			log.Info().Strs("addresses", addrs).Str("index", outCfg.Index).Msg("elasticsearch output configured (buffered)")
 
 		case "tcp":
 			out := output.NewTCPOutput(log, outCfg.Address)
-			outputs = append(outputs, out)
-			log.Info().Str("address", outCfg.Address).Msg("tcp output configured")
+			buffered := output.NewBufferedOutput(log, out, bufCfg)
+			outputs = append(outputs, buffered)
+			log.Info().Str("address", outCfg.Address).Msg("tcp output configured (buffered)")
 		}
 	}
 
@@ -144,7 +163,7 @@ func main() {
 	}
 
 	// 4. Pipeline
-	normalizer := pipeline.NewNormalizer(resolver, log)
+	normalizer := pipeline.NewNormalizer(resolver, log, cfg.Pipeline.Normalizer.ResolveHostnames)
 	enricher := pipeline.NewEnricher(log)
 
 	pipe := pipeline.NewPipeline(log, pipeline.PipelineConfig{
@@ -161,8 +180,21 @@ func main() {
 
 	// 7. API Server
 	apiServer := api.NewServer(log, cfg.API, cfg, *configFile, registry, resolver, poll, trapListener, pipe, cfg.Outputs)
+	apiServer.SetOutputInstances(outputs)
 
-	// ── Start all components ───────────────────────────────────────
+	// 8. Elasticsearch Store (auto-detect from configured ES outputs)
+	for _, outCfg := range cfg.Outputs {
+		if outCfg.Type == "elasticsearch" && outCfg.Enabled {
+			addrs := outCfg.Addresses
+			if len(addrs) == 0 && outCfg.Address != "" {
+				addrs = []string{outCfg.Address}
+			}
+			esStore := store.NewElasticsearchStore(log, addrs, outCfg.Index, outCfg.Username, outCfg.Password, outCfg.TLSSkipVerify)
+			apiServer.SetESStore(esStore)
+			log.Info().Strs("addresses", addrs).Str("index", outCfg.Index).Msg("elasticsearch event store enabled")
+			break
+		}
+	}
 
 	var wg sync.WaitGroup
 

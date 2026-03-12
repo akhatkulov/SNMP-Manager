@@ -7,6 +7,7 @@
     <meta name="description" content="SNMP Manager Admin Dashboard for device monitoring and management">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -66,6 +67,10 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
                 <span>Traps & Logs</span>
             </a>
+            <a href="#events" class="nav-item" data-page="events" id="nav-events">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <span>Events (ES)</span>
+            </a>
             <a href="#mibs" class="nav-item" data-page="mibs" id="nav-mibs">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                 <span>MIBs</span>
@@ -120,6 +125,19 @@
                 <div class="stat-card" id="statUptime"><div class="stat-icon stat-icon-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="stat-info"><span class="stat-value" id="statUptimeValue">-</span><span class="stat-label">Uptime</span></div></div>
             </div>
             <div id="pollProgressContainer" style="display:none;"></div>
+
+            <!-- Dashboard Charts -->
+            <div class="charts-row">
+                <div class="card chart-card">
+                    <div class="card-header"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Events Trend</h2></div>
+                    <div class="card-body"><canvas id="chartEventsTrend" height="220"></canvas></div>
+                </div>
+                <div class="card chart-card">
+                    <div class="card-header"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg> System Resources</h2></div>
+                    <div class="card-body"><canvas id="chartResources" height="220"></canvas></div>
+                </div>
+            </div>
+
             <div class="card">
                 <div class="card-header">
                     <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> Device Overview</h2>
@@ -172,6 +190,46 @@
             </div>
         </div>
 
+        <!-- ═════ Events (Elasticsearch) ═════ -->
+        <div class="page" id="page-events">
+            <div class="page-header"><h1>Events</h1><p class="page-subtitle">Elasticsearch event browser & analytics</p></div>
+
+            <div class="stats-grid stats-grid-3" id="esStatsGrid">
+                <div class="stat-card"><div class="stat-icon stat-icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div><div class="stat-info"><span class="stat-value" id="esStatusValue">—</span><span class="stat-label">ES Status</span></div></div>
+                <div class="stat-card"><div class="stat-icon stat-icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div><div class="stat-info"><span class="stat-value" id="esCountValue">—</span><span class="stat-label">Total Events (24h)</span></div></div>
+                <div class="stat-card"><div class="stat-icon stat-icon-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div class="stat-info"><span class="stat-value" id="esRateValue">—</span><span class="stat-label">Events/min</span></div></div>
+            </div>
+
+            <!-- ES Chart -->
+            <div class="card chart-card" style="margin-bottom:16px;">
+                <div class="card-header"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg> Events Over Time (24h)</h2></div>
+                <div class="card-body"><canvas id="chartESTimeline" height="200"></canvas></div>
+            </div>
+
+            <!-- Search & Filter -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="search-box" style="flex:1;max-width:500px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input type="text" placeholder="Search events (OID, device, value)..." id="esSearchInput"></div>
+                    <div class="btn-group">
+                        <select id="esSeverityFilter" class="btn btn-ghost btn-sm" style="padding:4px 10px;background:var(--bg-input);border:1px solid var(--border-color);color:var(--text-primary);border-radius:6px;">
+                            <option value="">All Severities</option>
+                            <option value="info">Info</option>
+                            <option value="warning">Warning</option>
+                            <option value="critical">Critical</option>
+                        </select>
+                        <select id="esTypeFilter" class="btn btn-ghost btn-sm" style="padding:4px 10px;background:var(--bg-input);border:1px solid var(--border-color);color:var(--text-primary);border-radius:6px;">
+                            <option value="">All Types</option>
+                            <option value="poll">Poll</option>
+                            <option value="trap">Trap</option>
+                        </select>
+                        <button class="btn btn-primary btn-sm" id="esSearchBtn">Search</button>
+                    </div>
+                </div>
+                <div id="esEventsTable" class="table-responsive"><div class="loading-state"><div class="spinner"></div><p>Search or browse events...</p></div></div>
+                <div id="esPagination" style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-top:1px solid var(--border-color);"></div>
+            </div>
+        </div>
+
         <!-- ═════ MIBs ═════ -->
         <div class="page" id="page-mibs">
             <div class="page-header"><h1>MIB Database</h1><p class="page-subtitle">Management Information Base browser</p></div>
@@ -196,6 +254,10 @@
             <div id="settingsTab-outputs">
                 <div class="stats-grid stats-grid-3" id="outputStatsGrid"></div>
                 <div class="card"><div class="card-header"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Output Destinations</h2><div class="btn-group"><span class="text-muted" style="font-size:0.78rem;margin-right:8px;">Restart required for changes</span><button class="btn btn-primary btn-sm" id="addOutputBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Output</button></div></div><div class="card-body" id="outputsContainer"><div class="loading-state"><div class="spinner"></div><p>Loading outputs...</p></div></div></div>
+                <div class="card" style="margin-top:16px;">
+                    <div class="card-header"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 17H2a1 1 0 0 0 0 2h20a1 1 0 0 0 0-2z"/><path d="M6 17v-2"/><path d="M10 17v-6"/><path d="M14 17v-4"/><path d="M18 17v-8"/></svg> Buffer Status</h2><span class="text-muted" style="font-size:0.78rem;">Store-and-forward for remote outputs</span></div>
+                    <div class="card-body" id="bufferStatsContainer"><div class="loading-state"><div class="spinner"></div><p>Loading buffer stats...</p></div></div>
+                </div>
             </div>
 
             <!-- System Info Tab -->

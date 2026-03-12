@@ -12,18 +12,20 @@ import (
 
 // Normalizer resolves OIDs to names, classifies events, and assigns severity.
 type Normalizer struct {
-	resolver     *mib.Resolver
-	log          zerolog.Logger
-	dnsCache     map[string]string
-	dnsCacheMu   sync.RWMutex
+	resolver         *mib.Resolver
+	log              zerolog.Logger
+	resolveHostnames bool
+	dnsCache         map[string]string
+	dnsCacheMu       sync.RWMutex
 }
 
 // NewNormalizer creates a new event normalizer.
-func NewNormalizer(resolver *mib.Resolver, log zerolog.Logger) *Normalizer {
+func NewNormalizer(resolver *mib.Resolver, log zerolog.Logger, resolveHostnames bool) *Normalizer {
 	return &Normalizer{
-		resolver: resolver,
-		log:      log.With().Str("component", "normalizer").Logger(),
-		dnsCache: make(map[string]string),
+		resolver:         resolver,
+		log:              log.With().Str("component", "normalizer").Logger(),
+		resolveHostnames: resolveHostnames,
+		dnsCache:         make(map[string]string),
 	}
 }
 
@@ -61,8 +63,8 @@ func (n *Normalizer) Process(event *SNMPEvent) {
 		event.SNMP.ValueString = fmt.Sprintf("%v", event.SNMP.Value)
 	}
 
-	// Resolve hostname from IP (cached)
-	if event.Source.Hostname == "" && event.Source.IP != "" {
+	// Resolve hostname from IP (cached, only if enabled)
+	if n.resolveHostnames && event.Source.Hostname == "" && event.Source.IP != "" {
 		event.Source.Hostname = n.lookupHost(event.Source.IP)
 	}
 

@@ -10,38 +10,65 @@
 # ──────────────────────────────────────────────────────────────────────
 
 services:
+  # ── Elasticsearch ─────────────────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: snmp-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - cluster.name=snmp-cluster
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    networks:
+      - snmp-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── SNMP Manager ──────────────────────────────────────────────────
   snmp-manager:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: snmp-manager
     restart: unless-stopped
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
 
-    # ── Portlar ──────────────────────────────────────────────────────
-    ports:
-      - "162:162/udp"       # SNMP Trap Receiver
-      - "8080:8080"         # REST API + Web UI
-      - "9090:9090"         # Prometheus Metrics
+    # Host network — SNMP UDP to'g'ri ishlashi uchun
+    network_mode: host
 
     # ── Volume mount'lar ─────────────────────────────────────────────
     volumes:
       # Loglar — host mashinaga yoziladi
       - ./logs:/var/log/snmp-manager
 
-      # Config faylini tashqaridan boshqarish (ixtiyoriy)
-      # Agar config ni o'zgartirsangiz, konteyner restart qiling
-      - ./configs/config.docker.yaml:/etc/snmp-manager/config.yaml:ro
+      # Config faylini tashqaridan boshqarish
+      - ./configs/config.docker.yaml:/etc/snmp-manager/config.yaml
 
-      # MIB fayllar (ixtiyoriy — yangi MIB qo'shsangiz rebuild shart emas)
+      # MIB fayllar
       - ./mibs:/usr/share/snmp/mibs:ro
 
     # ── Muhit o'zgaruvchilari ────────────────────────────────────────
     environment:
       - TZ=Asia/Tashkent
-
-    # ── Network ──────────────────────────────────────────────────────
-    networks:
-      - snmp-net
+      - ES_ADDRESSES=http://localhost:9200
+      - ES_INDEX=snmp-events
 
     # ── Healthcheck ──────────────────────────────────────────────────
     healthcheck:
@@ -51,12 +78,16 @@ services:
       retries: 3
       start_period: 15s
 
-    # ── Logging (Docker daemon loglari) ──────────────────────────────
+    # ── Logging ──────────────────────────────────────────────────────
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  es-data:
+    driver: local
 
 networks:
   snmp-net:
