@@ -96,16 +96,17 @@ type V3User struct {
 
 // DeviceConfig defines a single SNMP-managed device.
 type DeviceConfig struct {
-	Name         string            `yaml:"name"`
-	IP           string            `yaml:"ip"`
-	Port         int               `yaml:"port"`
-	SNMPVersion  string            `yaml:"snmp_version"`
-	Community    string            `yaml:"community"`
-	PollInterval time.Duration     `yaml:"poll_interval"`
-	Credentials  *V3Credentials    `yaml:"credentials"`
-	OIDGroups    []string          `yaml:"oid_groups"`
-	Tags         map[string]string `yaml:"tags"`
-	Enabled      *bool             `yaml:"enabled"`
+	Name          string            `yaml:"name"`
+	IP            string            `yaml:"ip"`
+	Port          int               `yaml:"port"`
+	SNMPVersion   string            `yaml:"snmp_version"`
+	Community     string            `yaml:"community"`
+	PollInterval  time.Duration     `yaml:"poll_interval"`
+	Credentials   *V3Credentials    `yaml:"credentials"`
+	OIDGroups     []string          `yaml:"oid_groups"`
+	Tags          map[string]string `yaml:"tags"`
+	Enabled       *bool             `yaml:"enabled"`
+	MonitorMethod string            `yaml:"monitor_method"` // "polling", "trap", "both"
 }
 
 // V3Credentials holds SNMPv3 authentication and privacy parameters.

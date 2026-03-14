@@ -33,6 +33,7 @@ type Device struct {
 	OIDGroups   []string          `json:"oid_groups"`
 	Tags        map[string]string `json:"tags"`
 	Enabled     bool              `json:"enabled"`
+	MonitorMethod string          `json:"monitor_method"` // "polling", "trap", "both"
 
 	// Polling
 	PollInterval time.Duration `json:"poll_interval"`
@@ -64,19 +65,24 @@ func NewDeviceFromConfig(cfg config.DeviceConfig) *Device {
 	if cfg.Enabled != nil {
 		enabled = *cfg.Enabled
 	}
+	monitorMethod := cfg.MonitorMethod
+	if monitorMethod == "" {
+		monitorMethod = "polling"
+	}
 	return &Device{
-		Name:         cfg.Name,
-		IP:           cfg.IP,
-		Port:         cfg.Port,
-		SNMPVersion:  cfg.SNMPVersion,
-		Community:    cfg.Community,
-		Credentials:  cfg.Credentials,
-		OIDGroups:    cfg.OIDGroups,
-		Tags:         cfg.Tags,
-		Enabled:      enabled,
-		PollInterval: cfg.PollInterval,
-		Status:       StatusUnknown,
-		IfIndexMap:   make(map[string]string),
+		Name:          cfg.Name,
+		IP:            cfg.IP,
+		Port:          cfg.Port,
+		SNMPVersion:   cfg.SNMPVersion,
+		Community:     cfg.Community,
+		Credentials:   cfg.Credentials,
+		OIDGroups:     cfg.OIDGroups,
+		Tags:          cfg.Tags,
+		Enabled:       enabled,
+		MonitorMethod: monitorMethod,
+		PollInterval:  cfg.PollInterval,
+		Status:        StatusUnknown,
+		IfIndexMap:    make(map[string]string),
 	}
 }
 

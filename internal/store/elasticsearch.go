@@ -93,17 +93,17 @@ func (s *ElasticsearchStore) Search(ctx context.Context, params SearchParams) (*
 	}
 	if params.DeviceIP != "" {
 		must = append(must, map[string]interface{}{
-			"term": map[string]interface{}{"device_ip": params.DeviceIP},
+			"term": map[string]interface{}{"device_ip.keyword": params.DeviceIP},
 		})
 	}
 	if params.Severity != "" {
 		must = append(must, map[string]interface{}{
-			"term": map[string]interface{}{"severity": params.Severity},
+			"term": map[string]interface{}{"severity_label.keyword": params.Severity},
 		})
 	}
 	if params.EventType != "" {
 		must = append(must, map[string]interface{}{
-			"term": map[string]interface{}{"event_type": params.EventType},
+			"term": map[string]interface{}{"event_type.keyword": params.EventType},
 		})
 	}
 
@@ -203,13 +203,13 @@ func (s *ElasticsearchStore) EventStats(ctx context.Context) (map[string]interfa
 		"size": 0,
 		"aggs": map[string]interface{}{
 			"by_type": map[string]interface{}{
-				"terms": map[string]interface{}{"field": "event_type", "size": 10},
+				"terms": map[string]interface{}{"field": "event_type.keyword", "size": 10},
 			},
 			"by_severity": map[string]interface{}{
-				"terms": map[string]interface{}{"field": "severity", "size": 10},
+				"terms": map[string]interface{}{"field": "severity_label.keyword", "size": 10},
 			},
 			"by_device": map[string]interface{}{
-				"terms": map[string]interface{}{"field": "device_ip", "size": 50},
+				"terms": map[string]interface{}{"field": "source.ip.keyword", "size": 50},
 			},
 			"events_over_time": map[string]interface{}{
 				"date_histogram": map[string]interface{}{

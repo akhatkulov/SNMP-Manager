@@ -232,33 +232,37 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 	devices := s.registry.List()
 
 	type deviceSummary struct {
-		Name       string        `json:"name"`
-		IP         string        `json:"ip"`
-		Version    string        `json:"snmp_version"`
-		Status     device.Status `json:"status"`
-		Enabled    bool          `json:"enabled"`
-		DeviceType string        `json:"device_type,omitempty"`
-		Vendor     string        `json:"vendor,omitempty"`
-		LastPoll   time.Time     `json:"last_poll,omitempty"`
-		PollCount  int64         `json:"poll_count"`
-		TrapCount  int64         `json:"trap_count"`
-		ErrorCount int64         `json:"error_count"`
+		Name          string        `json:"name"`
+		IP            string        `json:"ip"`
+		Version       string        `json:"snmp_version"`
+		Status        device.Status `json:"status"`
+		Enabled       bool          `json:"enabled"`
+		MonitorMethod string        `json:"monitor_method"`
+		DeviceType    string        `json:"device_type,omitempty"`
+		Vendor        string        `json:"vendor,omitempty"`
+		LastPoll      time.Time     `json:"last_poll,omitempty"`
+		LastError     string        `json:"last_error,omitempty"`
+		PollCount     int64         `json:"poll_count"`
+		TrapCount     int64         `json:"trap_count"`
+		ErrorCount    int64         `json:"error_count"`
 	}
 
 	summaries := make([]deviceSummary, 0, len(devices))
 	for _, d := range devices {
 		summaries = append(summaries, deviceSummary{
-			Name:       d.Name,
-			IP:         d.IP,
-			Version:    d.SNMPVersion,
-			Status:     d.GetStatus(),
-			Enabled:    d.Enabled,
-			DeviceType: d.DeviceType,
-			Vendor:     d.Vendor,
-			LastPoll:   d.LastPoll,
-			PollCount:  d.PollCount,
-			TrapCount:  d.TrapCount,
-			ErrorCount: d.ErrorCount,
+			Name:          d.Name,
+			IP:            d.IP,
+			Version:       d.SNMPVersion,
+			Status:        d.GetStatus(),
+			Enabled:       d.Enabled,
+			MonitorMethod: d.MonitorMethod,
+			DeviceType:    d.DeviceType,
+			Vendor:        d.Vendor,
+			LastPoll:      d.LastPoll,
+			LastError:     d.LastError,
+			PollCount:     d.PollCount,
+			TrapCount:     d.TrapCount,
+			ErrorCount:    d.ErrorCount,
 		})
 	}
 
@@ -280,16 +284,17 @@ func (s *Server) handleGetDevice(w http.ResponseWriter, r *http.Request) {
 
 // addDeviceRequest represents the JSON body for adding a new device.
 type addDeviceRequest struct {
-	Name         string            `json:"name"`
-	IP           string            `json:"ip"`
-	Port         int               `json:"port"`
-	SNMPVersion  string            `json:"snmp_version"`
-	Community    string            `json:"community"`
-	PollInterval string            `json:"poll_interval"`
-	OIDGroups    []string          `json:"oid_groups"`
-	Tags         map[string]string `json:"tags"`
-	Enabled      *bool             `json:"enabled"`
-	Credentials  *config.V3Credentials `json:"credentials,omitempty"`
+	Name          string            `json:"name"`
+	IP            string            `json:"ip"`
+	Port          int               `json:"port"`
+	SNMPVersion   string            `json:"snmp_version"`
+	Community     string            `json:"community"`
+	PollInterval  string            `json:"poll_interval"`
+	OIDGroups     []string          `json:"oid_groups"`
+	Tags          map[string]string `json:"tags"`
+	Enabled       *bool             `json:"enabled"`
+	Credentials   *config.V3Credentials `json:"credentials,omitempty"`
+	MonitorMethod string            `json:"monitor_method"` // "polling", "trap", "both"
 }
 
 func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request) {
@@ -350,18 +355,30 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request) {
 		oidGroups = []string{"system"}
 	}
 
+	// Monitor method
+	monitorMethod := req.MonitorMethod
+	if monitorMethod == "" {
+		monitorMethod = "polling"
+	}
+	validMethods := map[string]bool{"polling": true, "trap": true, "both": true}
+	if !validMethods[monitorMethod] {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid monitor_method: must be polling, trap, or both"})
+		return
+	}
+
 	dev := &device.Device{
-		Name:         req.Name,
-		IP:           req.IP,
-		Port:         req.Port,
-		SNMPVersion:  req.SNMPVersion,
-		Community:    req.Community,
-		Credentials:  req.Credentials,
-		OIDGroups:    oidGroups,
-		Tags:         req.Tags,
-		Enabled:      enabled,
-		PollInterval: pollInterval,
-		Status:       device.StatusUnknown,
+		Name:          req.Name,
+		IP:            req.IP,
+		Port:          req.Port,
+		SNMPVersion:   req.SNMPVersion,
+		Community:     req.Community,
+		Credentials:   req.Credentials,
+		OIDGroups:     oidGroups,
+		Tags:          req.Tags,
+		Enabled:       enabled,
+		MonitorMethod: monitorMethod,
+		PollInterval:  pollInterval,
+		Status:        device.StatusUnknown,
 	}
 
 	if err := s.registry.Add(dev); err != nil {
@@ -428,6 +445,14 @@ func (s *Server) handleUpdateDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Credentials != nil {
 		existing.Credentials = req.Credentials
+	}
+	if req.MonitorMethod != "" {
+		validMethods := map[string]bool{"polling": true, "trap": true, "both": true}
+		if !validMethods[req.MonitorMethod] {
+			s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid monitor_method: must be polling, trap, or both"})
+			return
+		}
+		existing.MonitorMethod = req.MonitorMethod
 	}
 
 	s.log.Info().Str("name", name).Msg("device updated via API")

@@ -109,12 +109,18 @@
             container.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><p>No devices configured</p><button class="btn btn-primary btn-sm" onclick="document.getElementById(\'addDeviceBtn\')?.click() || document.getElementById(\'dashAddDeviceBtn\')?.click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add First Device</button></div>';
             return;
         }
-        const rows = devices.map(d => `
+        const rows = devices.map(d => {
+            const method = d.monitor_method || 'polling';
+            const methodBadge = method === 'trap' ? '<span class="badge" style="background:var(--accent-orange-dim);color:var(--accent-orange);font-size:0.68rem;">🔔 Trap</span>'
+                : method === 'both' ? '<span class="badge" style="background:var(--accent-purple-dim);color:var(--accent-purple);font-size:0.68rem;">📡🔔 Both</span>'
+                : '<span class="badge" style="background:var(--accent-blue-dim);color:var(--accent-blue);font-size:0.68rem;">📡 Polling</span>';
+            return `
             <tr>
                 <td><span class="device-name">${esc(d.name)}</span></td>
                 <td><span class="device-ip">${esc(d.ip)}</span></td>
-                <td>${getStatusBadge(d.status, d.enabled)}</td>
+                <td>${getStatusBadge(d.status, d.enabled, d.last_error)}</td>
                 <td><span class="mono" style="font-size:0.82rem;">${d.snmp_version?.toUpperCase() || 'v2c'}</span></td>
+                <td>${methodBadge}</td>
                 ${compact ? '' : `<td>${esc(d.vendor || '—')}</td><td>${esc(d.device_type || '—')}</td>`}
                 <td><span class="mono" style="font-size:0.8rem;">${formatNumber(d.poll_count || 0)}</span></td>
                 ${compact ? '' : `<td><span class="mono" style="font-size:0.8rem;">${formatNumber(d.trap_count || 0)}</span></td><td style="font-size:0.82rem;">${d.last_poll ? formatTime(d.last_poll) : '—'}</td>`}
@@ -123,14 +129,23 @@
                     <button class="btn-icon btn-icon-blue" onclick="window._editDevice('${esc(d.name)}')" title="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
                     <button class="btn-icon btn-icon-danger" onclick="window._confirmDelete('${esc(d.name)}')" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
                 </div></td>
-            </tr>`).join('');
-        container.innerHTML = `<table><thead><tr><th>Name</th><th>IP Address</th><th>Status</th><th>Version</th>${compact ? '' : '<th>Vendor</th><th>Type</th>'}<th>Polls</th>${compact ? '' : '<th>Traps</th><th>Last Poll</th>'}<th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
+            </tr>`;
+        }).join('');
+        container.innerHTML = `<table><thead><tr><th>Name</th><th>IP Address</th><th>Status</th><th>Version</th><th>Method</th>${compact ? '' : '<th>Vendor</th><th>Type</th>'}<th>Polls</th>${compact ? '' : '<th>Traps</th><th>Last Poll</th>'}<th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
 
-    function getStatusBadge(status, enabled) {
-        if (!enabled) return '<span class="badge badge-disabled">Disabled</span>';
-        const m = { up:'badge-up', down:'badge-down', error:'badge-error', unreachable:'badge-down' };
-        return `<span class="badge ${m[status] || 'badge-unknown'}">${status || 'unknown'}</span>`;
+    function getStatusBadge(status, enabled, lastError) {
+        if (!enabled) return '<span class="badge badge-disabled" title="Device is disabled">⏸ Disabled</span>';
+        const configs = {
+            up:          { cls: 'badge-up',      icon: '●', label: 'Up' },
+            down:        { cls: 'badge-down',    icon: '●', label: 'Down' },
+            error:       { cls: 'badge-error',   icon: '⚠', label: 'Error' },
+            unreachable: { cls: 'badge-down',    icon: '✗', label: 'Unreachable' },
+            unknown:     { cls: 'badge-unknown', icon: '○', label: 'Pending' },
+        };
+        const cfg = configs[status] || configs.unknown;
+        const tooltip = lastError ? `title="${esc(lastError)}"` : (status === 'unknown' ? 'title="Awaiting first poll"' : '');
+        return `<span class="badge ${cfg.cls}" ${tooltip}>${cfg.icon} ${cfg.label}</span>`;
     }
 
     // ── Traps / Logs ──────────────────────────────────────────────────
@@ -679,6 +694,7 @@
             $('#devVersion').value = device.snmp_version || 'v2c';
             $('#devCommunity').value = device.community || '';
             $('#devEnabled').checked = device.enabled !== false;
+            $('#devMonitorMethod').value = device.monitor_method || 'polling';
             $('#devTagLocation').value = device.tags?.location || '';
             $('#devTagCriticality').value = device.tags?.criticality || 'high';
             $$('#oidGroupCheckboxes input').forEach(cb => { cb.checked = (device.oid_groups || []).includes(cb.value); });
@@ -688,6 +704,7 @@
             $('#devPollInterval').value = opts.includes(matchVal) ? matchVal : '60s';
             $('#devName').disabled = true;
             updateVersionFields();
+            updateMonitorMethodFields();
             showModal('deviceModal');
         } catch (err) { showToast(`Failed to load device: ${err.message}`, 'error'); }
     }
@@ -698,13 +715,20 @@
         else { $('#communityGroup').classList.remove('hidden'); $('#v3CredentialsGroup').classList.add('hidden'); }
     }
 
+    function updateMonitorMethodFields() {
+        const m = $('#devMonitorMethod').value;
+        const pollGroup = $('#devPollInterval').closest('.form-group');
+        if (m === 'trap') { pollGroup.style.opacity = '0.4'; pollGroup.style.pointerEvents = 'none'; }
+        else { pollGroup.style.opacity = '1'; pollGroup.style.pointerEvents = 'auto'; }
+    }
+
     async function handleDeviceSubmit(e) {
         e.preventDefault();
         const version = $('#devVersion').value;
         const oidGroups = []; $$('#oidGroupCheckboxes input:checked').forEach(cb => oidGroups.push(cb.value));
         const tags = {}; const loc = $('#devTagLocation').value.trim(); const crit = $('#devTagCriticality').value;
         if (loc) tags.location = loc; if (crit) tags.criticality = crit;
-        const body = { name:$('#devName').value.trim(), ip:$('#devIP').value.trim(), port:parseInt($('#devPort').value)||161, snmp_version:version, poll_interval:$('#devPollInterval').value, oid_groups:oidGroups.length?oidGroups:['system'], tags:Object.keys(tags).length?tags:undefined, enabled:$('#devEnabled').checked };
+        const body = { name:$('#devName').value.trim(), ip:$('#devIP').value.trim(), port:parseInt($('#devPort').value)||161, snmp_version:version, poll_interval:$('#devPollInterval').value, monitor_method:$('#devMonitorMethod').value, oid_groups:oidGroups.length?oidGroups:['system'], tags:Object.keys(tags).length?tags:undefined, enabled:$('#devEnabled').checked };
         if (version==='v1'||version==='v2c') { body.community=$('#devCommunity').value.trim(); if(!body.community){showToast('Community string is required','error');return;} }
         else if (version==='v3') { body.credentials={username:$('#devV3User').value.trim(),auth_protocol:$('#devV3AuthProto').value,auth_passphrase:$('#devV3AuthPass').value,priv_protocol:$('#devV3PrivProto').value,priv_passphrase:$('#devV3PrivPass').value}; if(!body.credentials.username){showToast('SNMPv3 username is required','error');return;} }
         try {
@@ -871,6 +895,9 @@
         } catch (err) { console.log('ES timeline not available:', err.message); }
     }
 
+    // Cached events for detail view
+    let cachedESEvents = [];
+
     async function searchEvents(resetPage = true) {
         if (resetPage) esCurrentPage = 0;
         const container = $('#esEventsTable');
@@ -886,6 +913,7 @@
             });
             const data = await apiCall('GET', `/events/search?${params}`);
             const events = data.events || [];
+            cachedESEvents = events;
             const total = data.total || 0;
 
             if (!events.length) {
@@ -896,18 +924,40 @@
 
             container.innerHTML = `<table class="data-table"><thead><tr>
                 <th>Time</th><th>Device</th><th>Type</th><th>OID</th><th>Value</th><th>Severity</th>
-            </tr></thead><tbody>${events.map(e => {
-                const severity = e.severity || 'info';
-                const sevColor = severity === 'critical' ? 'var(--accent-red)' : severity === 'warning' ? 'var(--accent-orange)' : 'var(--accent-teal)';
-                return `<tr>
+            </tr></thead><tbody>${events.map((e, idx) => {
+                // Extract from nested structure (ES _source has snmp.*, source.* fields)
+                const snmp = e.snmp || {};
+                const source = e.source || {};
+                const deviceLabel = source.hostname || source.sys_name || source.ip || e.device_ip || e.device_name || '—';
+                const oid = snmp.oid || e.oid || '—';
+                const oidName = snmp.oid_resolved || snmp.oid_name || e.oid_name || '';
+                const oidDisplay = oidName || oid;
+                const value = snmp.value_string || (snmp.value != null ? String(snmp.value) : '') || (e.value != null ? String(e.value) : '—');
+                const eventType = e.event_type || '—';
+                const severity = e.severity_label || e.severity || 'info';
+                const sevNum = e.severity_score ?? e.severity_num ?? null;
+                const sevColor = (severity === 'critical' || sevNum >= 9) ? 'var(--accent-red)' :
+                    (severity === 'high' || severity === 'warning' || (sevNum >= 5 && sevNum < 9)) ? 'var(--accent-orange)' :
+                    (severity === 'medium') ? 'var(--accent-blue)' : 'var(--accent-teal)';
+                const typeBadge = eventType === 'trap' ? 'background:var(--accent-orange-dim);color:var(--accent-orange);' : 'background:var(--accent-blue-dim);color:var(--accent-blue);';
+
+                return `<tr class="es-event-row" data-event-idx="${idx}" style="cursor:pointer;">
                     <td style="font-size:0.78rem;white-space:nowrap;">${formatTime(e.timestamp)}</td>
-                    <td><span class="mono" style="font-size:0.82rem;">${esc(e.device_ip || e.device_name || '—')}</span></td>
-                    <td><span class="badge badge-sm" style="background:var(--accent-blue-dim);color:var(--accent-blue);">${esc(e.event_type || 'poll')}</span></td>
-                    <td style="font-size:0.78rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${esc(e.oid || '')}">${esc(e.oid_name || e.oid || '—')}</td>
-                    <td style="font-size:0.82rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${esc(String(e.value || ''))}">${esc(String(e.value || '—'))}</td>
-                    <td><span style="color:${sevColor};font-size:0.82rem;font-weight:600;">● ${severity}</span></td>
+                    <td><span class="device-ip" style="font-size:0.82rem;">${esc(deviceLabel)}</span></td>
+                    <td><span class="badge badge-sm" style="${typeBadge}font-size:0.68rem;padding:2px 6px;">${esc(eventType)}</span></td>
+                    <td style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(oid)}">${esc(truncate(oidDisplay, 30))}</td>
+                    <td style="font-size:0.82rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(value)}">${esc(truncate(value, 35))}</td>
+                    <td><span style="color:${sevColor};font-size:0.82rem;font-weight:600;">● ${esc(severity)}${sevNum != null ? ' (' + sevNum + ')' : ''}</span></td>
                 </tr>`;
             }).join('')}</tbody></table>`;
+
+            // Attach click handlers to rows
+            $$('.es-event-row').forEach(row => {
+                row.addEventListener('click', () => {
+                    const idx = parseInt(row.dataset.eventIdx);
+                    if (cachedESEvents[idx]) showEventDetail(cachedESEvents[idx]);
+                });
+            });
 
             // Pagination
             const totalPages = Math.ceil(total / ES_PAGE_SIZE);
@@ -921,6 +971,102 @@
         } catch (err) {
             container.innerHTML = `<div class="empty-state"><p>${esc(err.message)}</p></div>`;
         }
+    }
+
+    // ── Event Detail Modal ────────────────────────────────────
+    function showEventDetail(event) {
+        const snmp = event.snmp || {};
+        const source = event.source || {};
+        const deviceLabel = source.hostname || source.sys_name || source.ip || event.device_ip || event.device_name || '—';
+        const oid = snmp.oid || event.oid || '—';
+        const oidName = snmp.oid_resolved || snmp.oid_name || event.oid_name || '';
+        const oidModule = snmp.oid_module || '';
+        const oidDesc = snmp.oid_description || '';
+        const oidSyntax = snmp.oid_syntax || '';
+        const oidCategory = snmp.oid_category || '';
+        const value = snmp.value_string || (snmp.value != null ? String(snmp.value) : '') || (event.value != null ? String(event.value) : '—');
+        const valueType = snmp.value_type || '';
+        const eventType = event.event_type || '—';
+        const severity = event.severity_label || event.severity || 'info';
+        const sevScore = event.severity_score ?? event.severity_num ?? '';
+        const timestamp = event.timestamp ? new Date(event.timestamp).toLocaleString() : '—';
+
+        // Build detail sections
+        const generalItems = [
+            ['Timestamp', timestamp],
+            ['Event Type', eventType],
+            ['Severity', severity + (sevScore !== '' ? ` (score: ${sevScore})` : '')],
+        ];
+
+        const sourceItems = [
+            ['IP Address', source.ip || event.device_ip || '—'],
+            ['Hostname', source.hostname || '—'],
+            ['System Name', source.sys_name || '—'],
+            ['Port', source.port || '—'],
+            ['SNMP Version', source.snmp_version || '—'],
+        ].filter(([, v]) => v !== '—');
+
+        const snmpItems = [
+            ['OID', oid],
+            ['Resolved Name', oidName || '—'],
+            ['Module', oidModule || '—'],
+            ['Description', oidDesc || '—'],
+            ['Syntax', oidSyntax || '—'],
+            ['Category', oidCategory || '—'],
+            ['Value', value],
+            ['Value Type', valueType || '—'],
+        ];
+
+        // Extra tags/metadata
+        const tags = event.tags || {};
+        const tagItems = Object.entries(tags).map(([k, v]) => [k, String(v)]);
+
+        const sevColor = (severity === 'critical') ? 'var(--accent-red)' :
+            (severity === 'high' || severity === 'warning') ? 'var(--accent-orange)' :
+            (severity === 'medium') ? 'var(--accent-blue)' : 'var(--accent-green)';
+        const typeBadge = eventType === 'trap'
+            ? '<span class="badge" style="background:var(--accent-orange-dim);color:var(--accent-orange);">TRAP</span>'
+            : '<span class="badge" style="background:var(--accent-blue-dim);color:var(--accent-blue);">POLL</span>';
+
+        const buildSection = (title, items, icon) => {
+            if (!items.length) return '';
+            return `<div class="event-detail-section">
+                <div class="event-detail-section-title">${icon} ${title}</div>
+                <div class="event-detail-grid">
+                    ${items.map(([label, val]) => `<div class="event-detail-item">
+                        <span class="event-detail-label">${esc(label)}</span>
+                        <span class="event-detail-value" title="${esc(String(val))}">${esc(String(val))}</span>
+                    </div>`).join('')}
+                </div>
+            </div>`;
+        };
+
+        const modalContent = `
+            <div class="event-detail-header">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                    ${typeBadge}
+                    <span style="color:${sevColor};font-weight:700;font-size:0.88rem;">● ${esc(severity)}</span>
+                    <span style="color:var(--text-muted);font-size:0.82rem;">${esc(timestamp)}</span>
+                </div>
+                <div style="margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:0.92rem;color:var(--accent-cyan);font-weight:600;">
+                    ${esc(deviceLabel)}
+                </div>
+                ${oidName ? `<div style="margin-top:4px;font-size:0.88rem;color:var(--text-primary);font-weight:600;">${esc(oidName)}</div>` : ''}
+                ${oid !== '—' && oid !== oidName ? `<div style="margin-top:2px;font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--text-muted);">${esc(oid)}</div>` : ''}
+            </div>
+            <div class="event-detail-body">
+                ${buildSection('General', generalItems, '📋')}
+                ${sourceItems.length ? buildSection('Source Device', sourceItems, '🖥️') : ''}
+                ${buildSection('SNMP Data', snmpItems, '📡')}
+                ${tagItems.length ? buildSection('Tags', tagItems, '🏷️') : ''}
+            </div>
+            <div class="event-detail-raw">
+                <div class="event-detail-section-title" style="margin-bottom:8px;">📄 Raw JSON</div>
+                <pre class="event-detail-json">${esc(JSON.stringify(event, null, 2))}</pre>
+            </div>`;
+
+        $('#eventDetailContent').innerHTML = modalContent;
+        showModal('eventDetailModal');
     }
 
     window._esPage = (dir) => { esCurrentPage += dir; searchEvents(false); };
@@ -974,7 +1120,7 @@
     function refreshCurrentPage() {
         const active = document.querySelector('.nav-item.active');
         const page = active?.dataset.page || 'dashboard';
-        switch (page) { case 'dashboard':loadDashboard();break; case 'devices':loadDevices();break; case 'traps':loadTraps();break; case 'mibs':loadMIBs();break; case 'settings':loadSettings();break; }
+        switch (page) { case 'dashboard':loadDashboard();break; case 'devices':loadDevices();break; case 'traps':loadTraps();break; case 'events':loadEvents();break; case 'mibs':loadMIBs();break; case 'settings':loadSettings();break; }
         countdownValue = REFRESH_INTERVAL / 1000;
     }
 
@@ -1031,7 +1177,7 @@
 
         // Hash routing
         const hash = window.location.hash.replace('#','');
-        if (hash && ['dashboard','devices','traps','mibs','settings'].includes(hash)) {
+        if (hash && ['dashboard','devices','traps','events','mibs','settings'].includes(hash)) {
             setTimeout(() => navigateTo(hash), 100);
         }
 
@@ -1043,6 +1189,7 @@
         // Device form
         $('#deviceForm').addEventListener('submit', handleDeviceSubmit);
         $('#devVersion').addEventListener('change', updateVersionFields);
+        $('#devMonitorMethod').addEventListener('change', updateMonitorMethodFields);
 
         // Modal close buttons
         const closeAndReset = () => { hideModal('deviceModal'); $('#devName').disabled = false; };
@@ -1095,6 +1242,9 @@
         $('#esSearchInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') searchEvents(); });
         $('#esSeverityFilter')?.addEventListener('change', () => searchEvents());
         $('#esTypeFilter')?.addEventListener('change', () => searchEvents());
+
+        // Event detail modal close
+        $('#eventDetailModalClose')?.addEventListener('click', () => hideModal('eventDetailModal'));
 
         // Log search
         $('#logSearchInput')?.addEventListener('input', () => renderLogs());

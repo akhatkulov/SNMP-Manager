@@ -288,7 +288,8 @@
                         <div class="form-group"><label for="devV3AuthPass">Auth Passphrase *</label><input type="password" id="devV3AuthPass" placeholder="Authentication passphrase"></div>
                         <div class="form-row"><div class="form-group"><label for="devV3PrivProto">Privacy Protocol</label><select id="devV3PrivProto"><option value="AES256">AES256</option><option value="AES">AES128</option><option value="DES">DES</option></select></div><div class="form-group"><label for="devV3PrivPass">Privacy Passphrase *</label><input type="password" id="devV3PrivPass" placeholder="Privacy passphrase"></div></div>
                     </div>
-                    <div class="form-row"><div class="form-group"><label for="devPollInterval">Poll Interval</label><select id="devPollInterval"><option value="15s">15 seconds</option><option value="30s">30 seconds</option><option value="60s" selected>1 minute</option><option value="120s">2 minutes</option><option value="300s">5 minutes</option><option value="600s">10 minutes</option></select></div><div class="form-group"><label for="devEnabled">Status</label><label class="toggle-switch"><input type="checkbox" id="devEnabled" checked><span class="toggle-slider"></span><span class="toggle-label">Enabled</span></label></div></div>
+                    <div class="form-row"><div class="form-group"><label for="devMonitorMethod">Monitor Method</label><select id="devMonitorMethod"><option value="polling" selected>📡 Polling</option><option value="trap">🔔 Trap</option><option value="both">📡🔔 Both</option></select></div><div class="form-group"><label for="devPollInterval">Poll Interval</label><select id="devPollInterval"><option value="15s">15 seconds</option><option value="30s">30 seconds</option><option value="60s" selected>1 minute</option><option value="120s">2 minutes</option><option value="300s">5 minutes</option><option value="600s">10 minutes</option></select></div></div>
+                    <div class="form-row"><div class="form-group"><label for="devEnabled">Status</label><label class="toggle-switch"><input type="checkbox" id="devEnabled" checked><span class="toggle-slider"></span><span class="toggle-label">Enabled</span></label></div></div>
                     <div class="form-group"><label>OID Groups</label><div class="checkbox-grid" id="oidGroupCheckboxes"><label class="checkbox-item"><input type="checkbox" value="system" checked> system</label><label class="checkbox-item"><input type="checkbox" value="interfaces"> interfaces</label><label class="checkbox-item"><input type="checkbox" value="cpu_memory"> cpu_memory</label><label class="checkbox-item"><input type="checkbox" value="trap"> trap</label></div></div>
                     <div class="form-row"><div class="form-group"><label for="devTagLocation">Location Tag</label><input type="text" id="devTagLocation" placeholder="e.g. DC-Tashkent"></div><div class="form-group"><label for="devTagCriticality">Criticality</label><select id="devTagCriticality"><option value="low">Low</option><option value="medium">Medium</option><option value="high" selected>High</option><option value="critical">Critical</option></select></div></div>
                 </div>
@@ -392,6 +393,18 @@
             <div class="modal-header"><h2>Delete Output</h2><button class="modal-close" id="deleteOutputModalClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
             <div class="modal-body"><p>Are you sure you want to delete the <strong id="deleteOutputName"></strong> output?</p><p style="font-size:0.82rem;color:var(--text-muted);margin-top:6px;">This change will be saved immediately. A restart is required to take full effect.</p></div>
             <div class="modal-footer"><button class="btn btn-ghost" id="deleteOutputCancelBtn">Cancel</button><button class="btn btn-danger" id="deleteOutputConfirmBtn">Delete</button></div>
+        </div>
+    </div>
+
+    <!-- Event Detail Modal -->
+    <div class="modal-overlay" id="eventDetailModal">
+        <div class="modal" style="max-width:680px;">
+            <div class="modal-header">
+                <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;color:var(--accent-cyan);"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Event Details</h2>
+                <button class="modal-close" id="eventDetailModalClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            </div>
+            <div class="modal-body" id="eventDetailContent" style="padding:0;">
+            </div>
         </div>
     </div>
 
