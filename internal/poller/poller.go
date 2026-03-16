@@ -15,6 +15,7 @@ import (
 	"github.com/me262/snmp-manager/internal/device"
 	"github.com/me262/snmp-manager/internal/mib"
 	"github.com/me262/snmp-manager/internal/pipeline"
+	snmptemplate "github.com/me262/snmp-manager/internal/template"
 )
 
 // Poller manages scheduled SNMP polling of devices.
@@ -24,6 +25,7 @@ type Poller struct {
 	registry *device.Registry
 	resolver *mib.Resolver
 	pipe     *pipeline.Pipeline
+	templates *snmptemplate.Store
 
 	// Worker pool
 	jobCh    chan *pollJob
@@ -54,6 +56,11 @@ type PollProgress struct {
 
 type pollJob struct {
 	device *device.Device
+}
+
+// SetTemplateStore sets the template store for OID resolution.
+func (p *Poller) SetTemplateStore(ts *snmptemplate.Store) {
+	p.templates = ts
 }
 
 // New creates a new SNMP Poller.
@@ -541,6 +548,18 @@ func (p *Poller) getOIDsForDevice(dev *device.Device) []string {
 		groupOIDs := p.resolver.GetOIDsForGroup(group)
 		oids = append(oids, groupOIDs...)
 	}
+
+	// Add individual OIDs from template if assigned
+	if dev.TemplateID != "" && p.templates != nil {
+		if tmpl, ok := p.templates.Get(dev.TemplateID); ok {
+			for _, item := range tmpl.Items {
+				if item.OID != "" {
+					oids = append(oids, item.OID)
+				}
+			}
+		}
+	}
+
 	return oids
 }
 

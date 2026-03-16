@@ -58,6 +58,7 @@ devices:
     oid_groups:
       - "system"
       - "interfaces"
+    template_id: "network-switch"
     tags:
       location: "DC-Tashkent"
       criticality: "high"
@@ -142,7 +143,7 @@ outputs:
 # ── REST API ──────────────────────────────────────────────────────────
 api:
   enabled: true
-  listen_address: "0.0.0.0:8080"
+  listen_address: "0.0.0.0:8081"
   auth:
     type: "api_key"
     keys:

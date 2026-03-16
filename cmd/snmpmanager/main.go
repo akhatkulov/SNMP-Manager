@@ -196,6 +196,7 @@ func main() {
 	apiServer.SetOutputInstances(outputs)
 	if templateStore != nil {
 		apiServer.SetTemplateStore(templateStore)
+		poll.SetTemplateStore(templateStore)
 	}
 	// 9. Elasticsearch Store (auto-detect from configured ES outputs)
 	for _, outCfg := range cfg.Outputs {
