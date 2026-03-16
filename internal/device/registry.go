@@ -133,6 +133,19 @@ func (r *Registry) Count() int {
 	return len(r.devices)
 }
 
+// ForEachEnabled calls fn for each enabled device.
+// Safer and more efficient than ListEnabled for high-frequency scheduling.
+func (r *Registry) ForEachEnabled(fn func(dev *Device)) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, dev := range r.devices {
+		if dev.Enabled {
+			fn(dev)
+		}
+	}
+}
+
 // Stats returns aggregated statistics.
 func (r *Registry) Stats() RegistryStats {
 	r.mu.RLock()

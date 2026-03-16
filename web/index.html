@@ -75,6 +75,10 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                 <span>MIBs</span>
             </a>
+            <a href="#templates" class="nav-item" data-page="templates" id="nav-templates">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                <span>Templates</span>
+            </a>
             <a href="#settings" class="nav-item" data-page="settings" id="nav-settings">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 <span>Settings</span>
@@ -241,6 +245,29 @@
             <div class="card"><div class="card-header"><h2>OID Lookup</h2></div><div class="card-body"><div class="oid-lookup"><div class="search-box search-box-lg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input type="text" placeholder="Enter OID (e.g. 1.3.6.1.2.1.1.1)" id="oidLookupInput"></div><button class="btn btn-primary" id="oidLookupBtn">Resolve</button></div><div id="oidResult" class="oid-result hidden"></div></div></div>
         </div>
 
+        <!-- ═════ Templates ═════ -->
+        <div class="page" id="page-templates">
+            <div class="page-header"><h1>Templates</h1><p class="page-subtitle">SNMP monitoring templates — Zabbix-style OID profiles for device types</p></div>
+            <div class="stats-grid stats-grid-3" id="templateStatsGrid"></div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="btn-group" style="gap:8px;">
+                        <select id="templateCategoryFilter" class="btn btn-ghost btn-sm" style="padding:4px 10px;background:var(--bg-input);border:1px solid var(--border-color);color:var(--text-primary);border-radius:6px;">
+                            <option value="">All Categories</option>
+                            <option value="router">🔀 Router</option>
+                            <option value="switch">🔌 Switch</option>
+                            <option value="server">🖥️ Server</option>
+                            <option value="printer">🖨️ Printer</option>
+                            <option value="firewall">🔥 Firewall</option>
+                            <option value="ap">📡 Access Point</option>
+                            <option value="generic">⚙️ Generic</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="card-body" id="templatesContainer"><div class="loading-state"><div class="spinner"></div><p>Loading templates...</p></div></div>
+            </div>
+        </div>
+
         <!-- ═════ Settings ═════ -->
         <div class="page" id="page-settings">
             <div class="page-header"><h1>Settings</h1><p class="page-subtitle">Output destinations, system info & server configuration</p></div>
@@ -289,6 +316,7 @@
                         <div class="form-row"><div class="form-group"><label for="devV3PrivProto">Privacy Protocol</label><select id="devV3PrivProto"><option value="AES256">AES256</option><option value="AES">AES128</option><option value="DES">DES</option></select></div><div class="form-group"><label for="devV3PrivPass">Privacy Passphrase *</label><input type="password" id="devV3PrivPass" placeholder="Privacy passphrase"></div></div>
                     </div>
                     <div class="form-row"><div class="form-group"><label for="devMonitorMethod">Monitor Method</label><select id="devMonitorMethod"><option value="polling" selected>📡 Polling</option><option value="trap">🔔 Trap</option><option value="both">📡🔔 Both</option></select></div><div class="form-group"><label for="devPollInterval">Poll Interval</label><select id="devPollInterval"><option value="15s">15 seconds</option><option value="30s">30 seconds</option><option value="60s" selected>1 minute</option><option value="120s">2 minutes</option><option value="300s">5 minutes</option><option value="600s">10 minutes</option></select></div></div>
+                    <div class="form-group"><label for="devTemplate">Template</label><select id="devTemplate"><option value="">— No template —</option></select><div style="font-size:0.74rem;color:var(--text-muted);margin-top:4px;">Selecting a template auto-applies OID groups and default tags</div></div>
                     <div class="form-row"><div class="form-group"><label for="devEnabled">Status</label><label class="toggle-switch"><input type="checkbox" id="devEnabled" checked><span class="toggle-slider"></span><span class="toggle-label">Enabled</span></label></div></div>
                     <div class="form-group"><label>OID Groups</label><div class="checkbox-grid" id="oidGroupCheckboxes"><label class="checkbox-item"><input type="checkbox" value="system" checked> system</label><label class="checkbox-item"><input type="checkbox" value="interfaces"> interfaces</label><label class="checkbox-item"><input type="checkbox" value="cpu_memory"> cpu_memory</label><label class="checkbox-item"><input type="checkbox" value="trap"> trap</label></div></div>
                     <div class="form-row"><div class="form-group"><label for="devTagLocation">Location Tag</label><input type="text" id="devTagLocation" placeholder="e.g. DC-Tashkent"></div><div class="form-group"><label for="devTagCriticality">Criticality</label><select id="devTagCriticality"><option value="low">Low</option><option value="medium">Medium</option><option value="high" selected>High</option><option value="critical">Critical</option></select></div></div>

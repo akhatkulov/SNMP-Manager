@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -17,7 +18,6 @@ type Pipeline struct {
 	// Channels connect pipeline stages
 	rawCh        chan *SNMPEvent
 	normalizedCh chan *SNMPEvent
-	enrichedCh   chan *SNMPEvent
 	outputCh     chan *SNMPEvent
 
 	// Stage processors
@@ -32,6 +32,7 @@ type Pipeline struct {
 	eventsDropped  int64
 	eventsErrored  int64
 	avgProcessTime time.Duration
+	closed         atomic.Bool
 }
 
 // PipelineConfig controls pipeline behavior.
@@ -64,7 +65,6 @@ func NewPipeline(log zerolog.Logger, cfg PipelineConfig, normalizer *Normalizer,
 		cfg:          PipelineConfig{BufferSize: bufSize, Workers: workers, FlushInterval: cfg.FlushInterval},
 		rawCh:        make(chan *SNMPEvent, bufSize),
 		normalizedCh: make(chan *SNMPEvent, bufSize),
-		enrichedCh:   make(chan *SNMPEvent, bufSize),
 		outputCh:     make(chan *SNMPEvent, bufSize),
 		normalizer:   normalizer,
 		enricher:     enricher,
@@ -75,6 +75,14 @@ func NewPipeline(log zerolog.Logger, cfg PipelineConfig, normalizer *Normalizer,
 // Submit adds a raw event to the pipeline for processing.
 // Blocks briefly if the buffer is full rather than dropping events immediately.
 func (p *Pipeline) Submit(event *SNMPEvent) bool {
+	// Check if pipeline is shutting down
+	if p.closed.Load() {
+		p.mu.Lock()
+		p.eventsDropped++
+		p.mu.Unlock()
+		return false
+	}
+
 	// Try non-blocking first
 	select {
 	case p.rawCh <- event:
@@ -142,6 +150,9 @@ func (p *Pipeline) Run(ctx context.Context) {
 	// Wait for all workers to finish
 	<-ctx.Done()
 	p.log.Info().Msg("pipeline shutting down...")
+
+	// Mark as closed before closing channels to prevent panic in Submit
+	p.closed.Store(true)
 
 	// Close channels in order to drain remaining events
 	close(p.rawCh)

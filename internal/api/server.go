@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/me262/snmp-manager/internal/pipeline"
 	"github.com/me262/snmp-manager/internal/poller"
 	"github.com/me262/snmp-manager/internal/store"
+	snmptemplate "github.com/me262/snmp-manager/internal/template"
 	"github.com/me262/snmp-manager/internal/trap"
 )
 
@@ -40,6 +42,7 @@ type Server struct {
 	esStore         *store.ElasticsearchStore
 	statsHistory    *store.StatsHistory
 	outputInstances []pipeline.Output
+	templateStore   *snmptemplate.Store
 }
 
 // NewServer creates a new API server.
@@ -74,6 +77,11 @@ func NewServer(
 // SetESStore sets the Elasticsearch store for event querying.
 func (s *Server) SetESStore(es *store.ElasticsearchStore) {
 	s.esStore = es
+}
+
+// SetTemplateStore sets the template store for template management.
+func (s *Server) SetTemplateStore(ts *snmptemplate.Store) {
+	s.templateStore = ts
 }
 
 // SetOutputInstances stores output references for buffer stats.
@@ -117,6 +125,13 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/events/stats", s.withAuth(s.handleEventStats))
 	mux.HandleFunc("GET /api/v1/events/timeseries", s.withAuth(s.handleEventTimeSeries))
 	mux.HandleFunc("GET /api/v1/buffer/stats", s.withAuth(s.handleBufferStats))
+
+	// Templates
+	mux.HandleFunc("GET /api/v1/templates", s.withAuth(s.handleListTemplates))
+	mux.HandleFunc("GET /api/v1/templates/{id}", s.withAuth(s.handleGetTemplate))
+	mux.HandleFunc("POST /api/v1/templates", s.withAuth(s.handleAddTemplate))
+	mux.HandleFunc("PUT /api/v1/templates/{id}", s.withAuth(s.handleUpdateTemplate))
+	mux.HandleFunc("DELETE /api/v1/templates/{id}", s.withAuth(s.handleDeleteTemplate))
 
 	// Admin panel auth (no API key required)
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
@@ -231,6 +246,9 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 	devices := s.registry.List()
 
+	// Sort devices by name for consistent ordering
+	sort.Slice(devices, func(i, j int) bool { return devices[i].Name < devices[j].Name })
+
 	type deviceSummary struct {
 		Name          string        `json:"name"`
 		IP            string        `json:"ip"`
@@ -238,6 +256,7 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 		Status        device.Status `json:"status"`
 		Enabled       bool          `json:"enabled"`
 		MonitorMethod string        `json:"monitor_method"`
+		TemplateID    string        `json:"template_id,omitempty"`
 		DeviceType    string        `json:"device_type,omitempty"`
 		Vendor        string        `json:"vendor,omitempty"`
 		LastPoll      time.Time     `json:"last_poll,omitempty"`
@@ -249,25 +268,54 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 
 	summaries := make([]deviceSummary, 0, len(devices))
 	for _, d := range devices {
+		// Clone device to get a thread-safe snapshot for the summary
+		clone := d.Clone()
 		summaries = append(summaries, deviceSummary{
-			Name:          d.Name,
-			IP:            d.IP,
-			Version:       d.SNMPVersion,
-			Status:        d.GetStatus(),
-			Enabled:       d.Enabled,
-			MonitorMethod: d.MonitorMethod,
-			DeviceType:    d.DeviceType,
-			Vendor:        d.Vendor,
-			LastPoll:      d.LastPoll,
-			LastError:     d.LastError,
-			PollCount:     d.PollCount,
-			TrapCount:     d.TrapCount,
-			ErrorCount:    d.ErrorCount,
+			Name:          clone.Name,
+			IP:            clone.IP,
+			Version:       clone.SNMPVersion,
+			Status:        clone.Status,
+			Enabled:       clone.Enabled,
+			MonitorMethod: clone.MonitorMethod,
+			TemplateID:    clone.TemplateID,
+			DeviceType:    clone.DeviceType,
+			Vendor:        clone.Vendor,
+			LastPoll:      clone.LastPoll,
+			LastError:     clone.LastError,
+			PollCount:     clone.PollCount,
+			TrapCount:     clone.TrapCount,
+			ErrorCount:    clone.ErrorCount,
 		})
+	}
+
+	total := len(summaries)
+
+	// Optional pagination: ?page=1&size=50
+	pageStr := r.URL.Query().Get("page")
+	sizeStr := r.URL.Query().Get("size")
+	if pageStr != "" || sizeStr != "" {
+		page := 1
+		size := 50
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+		if sz, err := strconv.Atoi(sizeStr); err == nil && sz > 0 && sz <= 500 {
+			size = sz
+		}
+		start := (page - 1) * size
+		end := start + size
+		if start > len(summaries) {
+			start = len(summaries)
+		}
+		if end > len(summaries) {
+			end = len(summaries)
+		}
+		summaries = summaries[start:end]
 	}
 
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"count":   len(summaries),
+		"total":   total,
 		"devices": summaries,
 	})
 }
@@ -279,7 +327,7 @@ func (s *Server) handleGetDevice(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, http.StatusNotFound, map[string]string{"error": "device not found"})
 		return
 	}
-	s.writeJSON(w, http.StatusOK, dev)
+	s.writeJSON(w, http.StatusOK, dev.Clone())
 }
 
 // addDeviceRequest represents the JSON body for adding a new device.
@@ -295,6 +343,7 @@ type addDeviceRequest struct {
 	Enabled       *bool             `json:"enabled"`
 	Credentials   *config.V3Credentials `json:"credentials,omitempty"`
 	MonitorMethod string            `json:"monitor_method"` // "polling", "trap", "both"
+	TemplateID    string            `json:"template_id"`
 }
 
 func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request) {
@@ -366,6 +415,23 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If a template is specified, apply its OID groups and tags
+	if req.TemplateID != "" && s.templateStore != nil {
+		if tmpl, ok := s.templateStore.Get(req.TemplateID); ok {
+			if len(oidGroups) == 0 || (len(oidGroups) == 1 && oidGroups[0] == "system") {
+				oidGroups = tmpl.OIDGroups
+			}
+			if req.Tags == nil {
+				req.Tags = make(map[string]string)
+			}
+			for k, v := range tmpl.DefaultTags {
+				if _, exists := req.Tags[k]; !exists {
+					req.Tags[k] = v
+				}
+			}
+		}
+	}
+
 	dev := &device.Device{
 		Name:          req.Name,
 		IP:            req.IP,
@@ -377,6 +443,7 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request) {
 		Tags:          req.Tags,
 		Enabled:       enabled,
 		MonitorMethod: monitorMethod,
+		TemplateID:    req.TemplateID,
 		PollInterval:  pollInterval,
 		Status:        device.StatusUnknown,
 	}
@@ -453,6 +520,9 @@ func (s *Server) handleUpdateDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		existing.MonitorMethod = req.MonitorMethod
+	}
+	if req.TemplateID != "" {
+		existing.TemplateID = req.TemplateID
 	}
 
 	s.log.Info().Str("name", name).Msg("device updated via API")
@@ -1158,4 +1228,139 @@ func (s *Server) handleBufferStats(w http.ResponseWriter, r *http.Request) {
 		"buffers": buffers,
 		"total":   len(buffers),
 	})
+}
+
+// ── Template Handlers ────────────────────────────────────────────────
+
+func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
+	if s.templateStore == nil {
+		s.writeJSON(w, http.StatusOK, map[string]interface{}{
+			"templates": []interface{}{},
+			"total":     0,
+		})
+		return
+	}
+
+	templates := s.templateStore.List()
+	category := r.URL.Query().Get("category")
+	if category != "" {
+		templates = s.templateStore.GetByCategory(category)
+	}
+
+	// Build summary response
+	type templateSummary struct {
+		ID              string   `json:"id"`
+		Name            string   `json:"name"`
+		Description     string   `json:"description"`
+		Category        string   `json:"category"`
+		Vendor          string   `json:"vendor"`
+		Builtin         bool     `json:"builtin"`
+		OIDGroups       []string `json:"oid_groups"`
+		ItemCount       int      `json:"item_count"`
+		DefaultInterval string   `json:"default_interval"`
+	}
+
+	summaries := make([]templateSummary, 0, len(templates))
+	for _, t := range templates {
+		summaries = append(summaries, templateSummary{
+			ID:              t.ID,
+			Name:            t.Name,
+			Description:     t.Description,
+			Category:        t.Category,
+			Vendor:          t.Vendor,
+			Builtin:         t.Builtin,
+			OIDGroups:       t.OIDGroups,
+			ItemCount:       len(t.Items),
+			DefaultInterval: t.DefaultInterval,
+		})
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"templates": summaries,
+		"total":     len(summaries),
+	})
+}
+
+func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
+	if s.templateStore == nil {
+		s.writeJSON(w, http.StatusNotFound, map[string]string{"error": "templates not available"})
+		return
+	}
+
+	id := r.PathValue("id")
+	tmpl, ok := s.templateStore.Get(id)
+	if !ok {
+		s.writeJSON(w, http.StatusNotFound, map[string]string{"error": "template not found"})
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, tmpl)
+}
+
+func (s *Server) handleAddTemplate(w http.ResponseWriter, r *http.Request) {
+	if s.templateStore == nil {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "templates not available"})
+		return
+	}
+
+	var tmpl snmptemplate.Template
+	if err := json.NewDecoder(r.Body).Decode(&tmpl); err != nil {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+
+	if tmpl.ID == "" || tmpl.Name == "" {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id and name are required"})
+		return
+	}
+
+	if err := s.templateStore.Add(&tmpl); err != nil {
+		s.writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+
+	s.log.Info().Str("id", tmpl.ID).Str("name", tmpl.Name).Msg("template added via API")
+	s.writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"message":  "template added successfully",
+		"template": tmpl.ID,
+	})
+}
+
+func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
+	if s.templateStore == nil {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "templates not available"})
+		return
+	}
+
+	id := r.PathValue("id")
+
+	var tmpl snmptemplate.Template
+	if err := json.NewDecoder(r.Body).Decode(&tmpl); err != nil {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+
+	if err := s.templateStore.Update(id, &tmpl); err != nil {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	s.log.Info().Str("id", id).Msg("template updated via API")
+	s.writeJSON(w, http.StatusOK, map[string]string{"message": "template updated successfully"})
+}
+
+func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
+	if s.templateStore == nil {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "templates not available"})
+		return
+	}
+
+	id := r.PathValue("id")
+	if err := s.templateStore.Delete(id); err != nil {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	s.log.Info().Str("id", id).Msg("template deleted via API")
+	s.writeJSON(w, http.StatusOK, map[string]string{"message": "template deleted successfully"})
 }

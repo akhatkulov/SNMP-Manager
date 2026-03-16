@@ -34,6 +34,7 @@ type Device struct {
 	Tags        map[string]string `json:"tags"`
 	Enabled     bool              `json:"enabled"`
 	MonitorMethod string          `json:"monitor_method"` // "polling", "trap", "both"
+	TemplateID    string          `json:"template_id,omitempty"`
 
 	// Polling
 	PollInterval time.Duration `json:"poll_interval"`
@@ -80,6 +81,7 @@ func NewDeviceFromConfig(cfg config.DeviceConfig) *Device {
 		Tags:          cfg.Tags,
 		Enabled:       enabled,
 		MonitorMethod: monitorMethod,
+		TemplateID:    cfg.TemplateID,
 		PollInterval:  cfg.PollInterval,
 		Status:        StatusUnknown,
 		IfIndexMap:    make(map[string]string),
@@ -103,11 +105,13 @@ func (d *Device) UpdateStatus(status Status, latency time.Duration, err error) {
 		d.LastError = ""
 	}
 
-	// Running average latency
+	// Running average latency using Welford-like update to prevent overflow
 	if d.PollCount == 1 {
 		d.AvgLatency = latency
 	} else {
-		d.AvgLatency = (d.AvgLatency*time.Duration(d.PollCount-1) + latency) / time.Duration(d.PollCount)
+		// newAvg = oldAvg + (latency - oldAvg) / count
+		diff := latency - d.AvgLatency
+		d.AvgLatency = d.AvgLatency + diff/time.Duration(d.PollCount)
 	}
 }
 
@@ -127,6 +131,91 @@ func (d *Device) SetSysInfo(descr, name, uptime string) {
 	d.SysUpTime = uptime
 	d.Vendor = detectVendor(descr)
 	d.DeviceType = detectDeviceType(descr)
+}
+
+// SetInterfaceName caches an interface index to name mapping.
+func (d *Device) SetInterfaceName(index, name string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.IfIndexMap == nil {
+		d.IfIndexMap = make(map[string]string)
+	}
+	d.IfIndexMap[index] = name
+}
+
+// GetInterfaceName returns an interface name from cache.
+func (d *Device) GetInterfaceName(index string) (string, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	name, ok := d.IfIndexMap[index]
+	return name, ok
+}
+
+// GetTags returns a copy of device tags.
+func (d *Device) GetTags() map[string]string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	tags := make(map[string]string, len(d.Tags))
+	for k, v := range d.Tags {
+		tags[k] = v
+	}
+	return tags
+}
+
+// SetTags updates device tags.
+func (d *Device) SetTags(tags map[string]string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.Tags = tags
+}
+
+// Clone returns a thread-safe copy of the device for API responses.
+func (d *Device) Clone() *Device {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	// Return a manually constructed struct to avoid copying the sync.RWMutex
+	clone := &Device{
+		Name:          d.Name,
+		IP:            d.IP,
+		Port:          d.Port,
+		SNMPVersion:   d.SNMPVersion,
+		Community:     d.Community,
+		Credentials:   d.Credentials,
+		Enabled:       d.Enabled,
+		MonitorMethod: d.MonitorMethod,
+		TemplateID:    d.TemplateID,
+		PollInterval:  d.PollInterval,
+		Status:        d.Status,
+		LastPoll:      d.LastPoll,
+		LastPollOK:    d.LastPollOK,
+		LastError:     d.LastError,
+		PollCount:     d.PollCount,
+		ErrorCount:    d.ErrorCount,
+		TrapCount:     d.TrapCount,
+		AvgLatency:    d.AvgLatency,
+		SysDescr:      d.SysDescr,
+		SysName:       d.SysName,
+		SysUpTime:     d.SysUpTime,
+		Vendor:        d.Vendor,
+		DeviceType:    d.DeviceType,
+	}
+	
+	// Deep copy maps and slices
+	clone.OIDGroups = make([]string, len(d.OIDGroups))
+	copy(clone.OIDGroups, d.OIDGroups)
+
+	clone.Tags = make(map[string]string, len(d.Tags))
+	for k, v := range d.Tags {
+		clone.Tags[k] = v
+	}
+
+	clone.IfIndexMap = make(map[string]string, len(d.IfIndexMap))
+	for k, v := range d.IfIndexMap {
+		clone.IfIndexMap[k] = v
+	}
+
+	return clone
 }
 
 // GetStatus safely reads the current status.

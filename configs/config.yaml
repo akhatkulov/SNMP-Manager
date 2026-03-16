@@ -35,7 +35,7 @@ poller:
 
 # ── Trap Receiver ─────────────────────────────────────────────────────
 trap_receiver:
-  enabled: true
+  enabled: false
   listen_address: "0.0.0.0:162"  # Standart SNMP trap port (sudo kerak)
 
   # SNMPv3 users for trap authentication (optional)
@@ -70,6 +70,7 @@ devices:
   #   snmp_version: "v2c"
   #   community: "public"
   #   poll_interval: 60s
+  #   template_id: "network-switch"   # Template dan OID lar va taglarni olish
   #   enabled: false                 # Test uchun o'chirilgan
   #   oid_groups:
   #     - "system"

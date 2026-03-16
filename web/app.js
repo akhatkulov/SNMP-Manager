@@ -58,6 +58,7 @@
             case 'traps': loadTraps(); break;
             case 'events': loadEvents(); break;
             case 'mibs': loadMIBs(); break;
+            case 'templates': loadTemplates(); break;
             case 'settings': loadSettings(); break;
         }
     }
@@ -116,7 +117,7 @@
                 : '<span class="badge" style="background:var(--accent-blue-dim);color:var(--accent-blue);font-size:0.68rem;">📡 Polling</span>';
             return `
             <tr>
-                <td><span class="device-name">${esc(d.name)}</span></td>
+                <td><span class="device-name">${esc(d.name)}</span>${d.template_id ? `<div style="margin-top:2px;"><span class="badge badge-sm" style="background:var(--accent-purple-dim);color:var(--accent-purple);font-size:0.62rem;padding:1px 6px;">📋 ${esc(d.template_id)}</span></div>` : ''}</td>
                 <td><span class="device-ip">${esc(d.ip)}</span></td>
                 <td>${getStatusBadge(d.status, d.enabled, d.last_error)}</td>
                 <td><span class="mono" style="font-size:0.82rem;">${d.snmp_version?.toUpperCase() || 'v2c'}</span></td>
@@ -678,6 +679,7 @@
         $('#deviceForm').reset();
         $('#devEnabled').checked = true;
         $('#devPort').value = 161;
+        populateTemplateDropdown();
         updateVersionFields();
         showModal('deviceModal');
     }
@@ -705,6 +707,8 @@
             $('#devName').disabled = true;
             updateVersionFields();
             updateMonitorMethodFields();
+            await populateTemplateDropdown();
+            $('#devTemplate').value = device.template_id || '';
             showModal('deviceModal');
         } catch (err) { showToast(`Failed to load device: ${err.message}`, 'error'); }
     }
@@ -728,7 +732,7 @@
         const oidGroups = []; $$('#oidGroupCheckboxes input:checked').forEach(cb => oidGroups.push(cb.value));
         const tags = {}; const loc = $('#devTagLocation').value.trim(); const crit = $('#devTagCriticality').value;
         if (loc) tags.location = loc; if (crit) tags.criticality = crit;
-        const body = { name:$('#devName').value.trim(), ip:$('#devIP').value.trim(), port:parseInt($('#devPort').value)||161, snmp_version:version, poll_interval:$('#devPollInterval').value, monitor_method:$('#devMonitorMethod').value, oid_groups:oidGroups.length?oidGroups:['system'], tags:Object.keys(tags).length?tags:undefined, enabled:$('#devEnabled').checked };
+        const body = { name:$('#devName').value.trim(), ip:$('#devIP').value.trim(), port:parseInt($('#devPort').value)||161, snmp_version:version, poll_interval:$('#devPollInterval').value, monitor_method:$('#devMonitorMethod').value, template_id:$('#devTemplate')?.value || '', oid_groups:oidGroups.length?oidGroups:['system'], tags:Object.keys(tags).length?tags:undefined, enabled:$('#devEnabled').checked };
         if (version==='v1'||version==='v2c') { body.community=$('#devCommunity').value.trim(); if(!body.community){showToast('Community string is required','error');return;} }
         else if (version==='v3') { body.credentials={username:$('#devV3User').value.trim(),auth_protocol:$('#devV3AuthProto').value,auth_passphrase:$('#devV3AuthPass').value,priv_protocol:$('#devV3PrivProto').value,priv_passphrase:$('#devV3PrivPass').value}; if(!body.credentials.username){showToast('SNMPv3 username is required','error');return;} }
         try {
@@ -1117,10 +1121,202 @@
     }
     function truncate(val, maxLen) { if (!val || val.length <= maxLen) return val; return val.substring(0, maxLen) + '…'; }
 
+    // ── Templates ─────────────────────────────────────────────────────
+    let cachedTemplates = [];
+
+    const categoryIcons = {
+        router: '🔀', switch: '🔌', server: '🖥️', printer: '🖨️',
+        firewall: '🔥', ap: '📡', generic: '⚙️'
+    };
+    const categoryColors = {
+        router: 'var(--accent-blue)', switch: 'var(--accent-green)', server: 'var(--accent-purple)',
+        printer: 'var(--accent-orange)', firewall: 'var(--accent-red)', ap: 'var(--accent-cyan)',
+        generic: 'var(--accent-teal)'
+    };
+
+    async function loadTemplates() {
+        const container = $('#templatesContainer');
+        const statsGrid = $('#templateStatsGrid');
+        if (!container) return;
+
+        try {
+            const category = $('#templateCategoryFilter')?.value || '';
+            const params = category ? `?category=${category}` : '';
+            const data = await apiCall('GET', `/templates${params}`);
+            const templates = data.templates || [];
+            cachedTemplates = templates;
+
+            // Stats
+            const total = templates.length;
+            const builtinCount = templates.filter(t => t.builtin).length;
+            const customCount = total - builtinCount;
+            const categories = [...new Set(templates.map(t => t.category))];
+
+            if (statsGrid) {
+                statsGrid.innerHTML = `
+                    <div class="stat-card"><div class="stat-icon stat-icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></div><div class="stat-info"><span class="stat-value">${total}</span><span class="stat-label">Total Templates</span></div></div>
+                    <div class="stat-card"><div class="stat-icon stat-icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div class="stat-info"><span class="stat-value">${builtinCount}</span><span class="stat-label">Built-in</span></div></div>
+                    <div class="stat-card"><div class="stat-icon stat-icon-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></div><div class="stat-info"><span class="stat-value">${categories.length}</span><span class="stat-label">Categories</span></div></div>`;
+            }
+
+            if (!templates.length) {
+                container.innerHTML = '<div class="empty-state"><p>No templates found</p></div>';
+                return;
+            }
+
+            container.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;">${templates.map(t => {
+                const icon = categoryIcons[t.category] || '⚙️';
+                const color = categoryColors[t.category] || 'var(--text-secondary)';
+                const builtinBadge = t.builtin
+                    ? '<span style="font-size:0.68rem;padding:2px 8px;background:var(--accent-green-dim);color:var(--accent-green);border-radius:12px;font-weight:600;">Built-in</span>'
+                    : '<span style="font-size:0.68rem;padding:2px 8px;background:var(--accent-purple-dim);color:var(--accent-purple);border-radius:12px;font-weight:600;">Custom</span>';
+
+                return `<div class="output-card" style="cursor:pointer;" onclick="window._viewTemplate('${esc(t.id)}')">
+                    <div class="output-card-stripe" style="background:${color};"></div>
+                    <div class="output-card-header" style="align-items:flex-start;">
+                        <div>
+                            <span style="font-size:1.1rem;">${icon}</span>
+                            <span class="output-card-type" style="margin-left:6px;">${esc(t.name)}</span>
+                        </div>
+                        ${builtinBadge}
+                    </div>
+                    <div style="margin-top:6px;font-size:0.8rem;color:var(--text-secondary);line-height:1.4;">${esc(t.description)}</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">
+                        <span class="badge" style="background:rgba(100,120,160,0.12);color:var(--text-muted);font-size:0.68rem;">${esc(t.category)}</span>
+                        <span class="badge" style="background:rgba(100,120,160,0.12);color:var(--text-muted);font-size:0.68rem;">${esc(t.vendor)}</span>
+                        <span class="badge" style="background:${color}22;color:${color};font-size:0.68rem;font-weight:600;">${t.item_count} OIDs</span>
+                        ${(t.oid_groups || []).map(g => `<span class="badge" style="background:var(--accent-blue-dim);color:var(--accent-blue);font-size:0.65rem;">${esc(g)}</span>`).join('')}
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid var(--border-color);font-size:0.76rem;color:var(--text-muted);">
+                        <span>Interval: ${esc(t.default_interval || '60s')}</span>
+                        <span style="color:${color};font-weight:600;">View Items →</span>
+                    </div>
+                </div>`;
+            }).join('')}</div>`;
+
+            updateServerStatus(true);
+        } catch (err) {
+            console.error('Templates load error:', err);
+            container.innerHTML = `<div class="empty-state"><p>Error: ${esc(err.message)}</p></div>`;
+            updateServerStatus(false);
+        }
+    }
+
+    // View template detail
+    async function viewTemplate(id) {
+        try {
+            const tmpl = await apiCall('GET', `/templates/${id}`);
+            const icon = categoryIcons[tmpl.category] || '⚙️';
+            const color = categoryColors[tmpl.category] || 'var(--text-secondary)';
+
+            // Group items by category
+            const itemsByCategory = {};
+            (tmpl.items || []).forEach(item => {
+                const cat = item.category || 'other';
+                if (!itemsByCategory[cat]) itemsByCategory[cat] = [];
+                itemsByCategory[cat].push(item);
+            });
+
+            const categorySections = Object.entries(itemsByCategory).map(([cat, items]) => {
+                return `<div style="margin-top:12px;">
+                    <div style="font-weight:600;font-size:0.84rem;color:var(--text-primary);margin-bottom:6px;text-transform:capitalize;">${esc(cat)} <span style="color:var(--text-muted);font-weight:400;">(${items.length})</span></div>
+                    <table class="data-table" style="font-size:0.78rem;"><thead><tr>
+                        <th style="width:30%;">OID</th><th style="width:20%;">Name</th><th>Description</th><th style="width:12%;">Type</th>
+                    </tr></thead><tbody>${items.map(item => `<tr>
+                        <td style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--text-muted);">${esc(item.oid)}</td>
+                        <td style="font-weight:500;color:var(--accent-cyan);">${esc(item.name)}</td>
+                        <td style="color:var(--text-secondary);">${esc(item.description || '—')}</td>
+                        <td><span class="badge badge-sm" style="background:rgba(100,120,160,0.12);color:var(--text-muted);">${esc(item.type)}</span></td>
+                    </tr>`).join('')}</tbody></table>
+                </div>`;
+            }).join('');
+
+            const content = `
+                <div class="event-detail-header" style="padding:16px 20px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:1.5rem;">${icon}</span>
+                        <span style="font-size:1.15rem;font-weight:700;color:var(--text-primary);">${esc(tmpl.name)}</span>
+                        ${tmpl.builtin ? '<span class="badge" style="background:var(--accent-green-dim);color:var(--accent-green);">Built-in</span>' : '<span class="badge" style="background:var(--accent-purple-dim);color:var(--accent-purple);">Custom</span>'}
+                    </div>
+                    <div style="margin-top:6px;font-size:0.86rem;color:var(--text-secondary);">${esc(tmpl.description)}</div>
+                    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+                        <span class="badge" style="background:${color}22;color:${color};font-weight:600;">Category: ${esc(tmpl.category)}</span>
+                        <span class="badge" style="background:rgba(100,120,160,0.12);color:var(--text-muted);">Vendor: ${esc(tmpl.vendor)}</span>
+                        <span class="badge" style="background:rgba(100,120,160,0.12);color:var(--text-muted);">Interval: ${esc(tmpl.default_interval || '60s')}</span>
+                        <span class="badge" style="background:var(--accent-blue-dim);color:var(--accent-blue);font-weight:600;">${(tmpl.items || []).length} Monitoring Items</span>
+                    </div>
+                    ${(tmpl.oid_groups || []).length ? `<div style="margin-top:8px;"><span style="font-size:0.78rem;color:var(--text-muted);">OID Groups:</span> ${tmpl.oid_groups.map(g => `<span class="badge badge-sm" style="margin:2px;background:var(--accent-blue-dim);color:var(--accent-blue);">${esc(g)}</span>`).join('')}</div>` : ''}
+                </div>
+                <div style="padding:0 20px 20px;max-height:60vh;overflow-y:auto;">
+                    ${categorySections || '<div class="empty-state"><p>No monitoring items</p></div>'}
+                </div>`;
+
+            $('#eventDetailContent').innerHTML = content;
+            showModal('eventDetailModal');
+        } catch (err) {
+            showToast('Error loading template: ' + err.message, 'error');
+        }
+    }
+
+    window._viewTemplate = viewTemplate;
+
+    // Populate template dropdown in device form
+    async function populateTemplateDropdown() {
+        const sel = $('#devTemplate');
+        if (!sel) return;
+
+        try {
+            const data = await apiCall('GET', '/templates');
+            const templates = data.templates || [];
+
+            sel.innerHTML = '<option value="">— No template —</option>';
+            // Group by category
+            const byCategory = {};
+            templates.forEach(t => {
+                if (!byCategory[t.category]) byCategory[t.category] = [];
+                byCategory[t.category].push(t);
+            });
+
+            Object.keys(byCategory).sort().forEach(cat => {
+                const icon = categoryIcons[cat] || '';
+                const group = document.createElement('optgroup');
+                group.label = `${icon} ${cat.charAt(0).toUpperCase() + cat.slice(1)}`;
+                byCategory[cat].forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = `${t.name} (${t.item_count} OIDs)`;
+                    group.appendChild(opt);
+                });
+                sel.appendChild(group);
+            });
+        } catch (err) {
+            console.log('Templates not available for dropdown:', err.message);
+        }
+    }
+
+    // When a template is selected, auto-apply OID groups
+    async function handleTemplateSelect() {
+        const tmplId = $('#devTemplate')?.value;
+        if (!tmplId) return;
+
+        try {
+            const tmpl = await apiCall('GET', `/templates/${tmplId}`);
+            // Auto-check OID groups from template
+            if (tmpl.oid_groups) {
+                $$('#oidGroupCheckboxes input').forEach(cb => {
+                    cb.checked = tmpl.oid_groups.includes(cb.value);
+                });
+            }
+            showToast(`Template "${tmpl.name}" applied: ${(tmpl.oid_groups || []).join(', ')}`, 'info');
+        } catch (err) {
+            console.log('Could not load template details:', err.message);
+        }
+    }
+
     function refreshCurrentPage() {
         const active = document.querySelector('.nav-item.active');
         const page = active?.dataset.page || 'dashboard';
-        switch (page) { case 'dashboard':loadDashboard();break; case 'devices':loadDevices();break; case 'traps':loadTraps();break; case 'events':loadEvents();break; case 'mibs':loadMIBs();break; case 'settings':loadSettings();break; }
+        switch (page) { case 'dashboard':loadDashboard();break; case 'devices':loadDevices();break; case 'traps':loadTraps();break; case 'events':loadEvents();break; case 'mibs':loadMIBs();break; case 'templates':loadTemplates();break; case 'settings':loadSettings();break; }
         countdownValue = REFRESH_INTERVAL / 1000;
     }
 
@@ -1177,7 +1373,7 @@
 
         // Hash routing
         const hash = window.location.hash.replace('#','');
-        if (hash && ['dashboard','devices','traps','events','mibs','settings'].includes(hash)) {
+        if (hash && ['dashboard','devices','traps','events','mibs','templates','settings'].includes(hash)) {
             setTimeout(() => navigateTo(hash), 100);
         }
 
@@ -1190,6 +1386,7 @@
         $('#deviceForm').addEventListener('submit', handleDeviceSubmit);
         $('#devVersion').addEventListener('change', updateVersionFields);
         $('#devMonitorMethod').addEventListener('change', updateMonitorMethodFields);
+        $('#devTemplate')?.addEventListener('change', handleTemplateSelect);
 
         // Modal close buttons
         const closeAndReset = () => { hideModal('deviceModal'); $('#devName').disabled = false; };
@@ -1272,6 +1469,9 @@
                 if (tab.dataset.tab === 'server') loadServerConfig();
             });
         });
+
+        // Template category filter
+        $('#templateCategoryFilter')?.addEventListener('change', () => loadTemplates());
 
         // System info refresh button
         $('#refreshSysInfoBtn')?.addEventListener('click', loadSystemInfo);

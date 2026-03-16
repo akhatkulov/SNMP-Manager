@@ -153,10 +153,9 @@ func (p *Poller) Run(ctx context.Context) {
 			return
 
 		case <-ticker.C:
-			devices := p.registry.ListEnabled()
 			now := time.Now()
 
-			for _, dev := range devices {
+			p.registry.ForEachEnabled(func(dev *device.Device) {
 				last, ok := lastPoll[dev.Name]
 				if !ok || now.Sub(last) >= dev.PollInterval {
 					select {
@@ -166,7 +165,7 @@ func (p *Poller) Run(ctx context.Context) {
 						p.log.Warn().Str("device", dev.Name).Msg("poll queue full, skipping")
 					}
 				}
-			}
+			})
 		}
 	}
 }
@@ -334,17 +333,17 @@ func (p *Poller) doPoll(ctx context.Context, dev *device.Device) ([]*pipeline.SN
 			if strings.HasPrefix(pduOid, ifNamePrefix) {
 				idx := pduOid[len(ifNamePrefix):]
 				if name, ok := pdu.Value.([]byte); ok && len(name) > 0 {
-					dev.IfIndexMap[idx] = string(name)
+					dev.SetInterfaceName(idx, string(name))
 				} else if name, ok := pdu.Value.(string); ok && len(name) > 0 {
-					dev.IfIndexMap[idx] = name
+					dev.SetInterfaceName(idx, name)
 				}
 			} else if strings.HasPrefix(pduOid, ifDescrPrefix) {
 				idx := pduOid[len(ifDescrPrefix):]
-				if _, exists := dev.IfIndexMap[idx]; !exists {
+				if _, exists := dev.GetInterfaceName(idx); !exists {
 					if name, ok := pdu.Value.([]byte); ok && len(name) > 0 {
-						dev.IfIndexMap[idx] = string(name)
+						dev.SetInterfaceName(idx, string(name))
 					} else if name, ok := pdu.Value.(string); ok && len(name) > 0 {
-						dev.IfIndexMap[idx] = name
+						dev.SetInterfaceName(idx, name)
 					}
 				}
 			}
@@ -495,8 +494,8 @@ func (p *Poller) variableToEvent(dev *device.Device, v *gosnmp.SnmpPDU) *pipelin
 		},
 	}
 
-	// Copy tags from device
-	for k, v := range dev.Tags {
+	// Copy tags from device (thread-safe)
+	for k, v := range dev.GetTags() {
 		if event.Source.Location == "" && k == "location" {
 			event.Source.Location = v
 		}

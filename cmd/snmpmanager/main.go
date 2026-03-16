@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/me262/snmp-manager/internal/poller"
 	"github.com/me262/snmp-manager/internal/store"
 	"github.com/me262/snmp-manager/internal/telemetry"
+	snmptemplate "github.com/me262/snmp-manager/internal/template"
 	"github.com/me262/snmp-manager/internal/trap"
 )
 
@@ -30,6 +32,7 @@ var (
 func main() {
 	// Parse CLI flags
 	configFile := flag.String("config", "configs/config.yaml", "Path to configuration file")
+	templatesDir := flag.String("templates", "configs/templates", "Path to templates directory")
 	showVersion := flag.Bool("version", false, "Show version and exit")
 	flag.Parse()
 
@@ -178,11 +181,23 @@ func main() {
 	// 6. Trap Listener
 	trapListener := trap.NewListener(log, cfg.TrapReceiver, registry, resolver, pipe)
 
-	// 7. API Server
+	// 7. Template Store
+	builtinTemplates := filepath.Join(*templatesDir, "builtin_templates.json")
+	customTemplates := filepath.Join(*templatesDir, "custom_templates.json")
+	templateStore, err := snmptemplate.NewStore(builtinTemplates, customTemplates)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to load templates, templates feature disabled")
+	} else {
+		log.Info().Int("count", templateStore.Count()).Msg("template store initialized")
+	}
+
+	// 8. API Server
 	apiServer := api.NewServer(log, cfg.API, cfg, *configFile, registry, resolver, poll, trapListener, pipe, cfg.Outputs)
 	apiServer.SetOutputInstances(outputs)
-
-	// 8. Elasticsearch Store (auto-detect from configured ES outputs)
+	if templateStore != nil {
+		apiServer.SetTemplateStore(templateStore)
+	}
+	// 9. Elasticsearch Store (auto-detect from configured ES outputs)
 	for _, outCfg := range cfg.Outputs {
 		if outCfg.Type == "elasticsearch" && outCfg.Enabled {
 			addrs := outCfg.Addresses

@@ -107,6 +107,7 @@ type DeviceConfig struct {
 	Tags          map[string]string `yaml:"tags"`
 	Enabled       *bool             `yaml:"enabled"`
 	MonitorMethod string            `yaml:"monitor_method"` // "polling", "trap", "both"
+	TemplateID    string            `yaml:"template_id"`
 }
 
 // V3Credentials holds SNMPv3 authentication and privacy parameters.
