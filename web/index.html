@@ -263,6 +263,7 @@
                             <option value="generic">⚙️ Generic</option>
                         </select>
                     </div>
+                    <button class="btn btn-primary" id="createTemplateBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create Template</button>
                 </div>
                 <div class="card-body" id="templatesContainer"><div class="loading-state"><div class="spinner"></div><p>Loading templates...</p></div></div>
             </div>
@@ -433,6 +434,56 @@
             </div>
             <div class="modal-body" id="eventDetailContent" style="padding:0;">
             </div>
+        </div>
+    </div>
+
+    <!-- Template Create/Edit Modal -->
+    <div class="modal-overlay" id="templateModal">
+        <div class="modal" style="max-width:760px;">
+            <div class="modal-header"><h2 id="templateModalTitle">Create Template</h2><button class="modal-close" id="templateModalClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+            <form id="templateForm">
+                <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+                    <div class="form-row"><div class="form-group"><label for="tmplId">Template ID *</label><input type="text" id="tmplId" placeholder="e.g. custom-router" required><div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">Unique identifier (lowercase, dashes allowed)</div></div><div class="form-group"><label for="tmplName">Name *</label><input type="text" id="tmplName" placeholder="e.g. Custom Router Template" required></div></div>
+                    <div class="form-group"><label for="tmplDescription">Description</label><input type="text" id="tmplDescription" placeholder="Template description"></div>
+                    <div class="form-row">
+                        <div class="form-group"><label for="tmplCategory">Category</label><select id="tmplCategory"><option value="router">🔀 Router</option><option value="switch">🔌 Switch</option><option value="server">🖥️ Server</option><option value="printer">🖨️ Printer</option><option value="firewall">🔥 Firewall</option><option value="ap">📡 Access Point</option><option value="generic" selected>⚙️ Generic</option></select></div>
+                        <div class="form-group"><label for="tmplVendor">Vendor</label><input type="text" id="tmplVendor" placeholder="e.g. Cisco, MikroTik, Any" value="Any"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label for="tmplInterval">Default Interval</label><select id="tmplInterval"><option value="15s">15 seconds</option><option value="30s">30 seconds</option><option value="60s" selected>1 minute</option><option value="120s">2 minutes</option><option value="300s">5 minutes</option><option value="600s">10 minutes</option></select></div>
+                        <div class="form-group"><label>OID Groups</label><div class="checkbox-grid" id="tmplOidGroupCheckboxes"><label class="checkbox-item"><input type="checkbox" value="system" checked> system</label><label class="checkbox-item"><input type="checkbox" value="interfaces"> interfaces</label><label class="checkbox-item"><input type="checkbox" value="cpu_memory"> cpu_memory</label><label class="checkbox-item"><input type="checkbox" value="trap"> trap</label></div></div>
+                    </div>
+                    <div class="form-row"><div class="form-group"><label for="tmplTagKey">Default Tags</label><div style="display:flex;gap:6px;"><input type="text" id="tmplTagKey" placeholder="Tag key" style="flex:1;"><input type="text" id="tmplTagValue" placeholder="Tag value" style="flex:1;"><button type="button" class="btn btn-ghost btn-sm" id="tmplAddTagBtn" style="white-space:nowrap;">+ Add</button></div><div id="tmplTagsList" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;"></div></div></div>
+                    <div class="form-divider" style="margin-top:16px;">Monitoring Items (OIDs)</div>
+                    <div id="tmplItemsContainer"></div>
+                    <button type="button" class="btn btn-ghost" id="tmplAddItemBtn" style="margin-top:8px;width:100%;border:1px dashed var(--border-color);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add OID Item</button>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-ghost" id="templateCancelBtn">Cancel</button><button type="submit" class="btn btn-primary" id="templateSubmitBtn">Create Template</button></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Template Detail/View Modal -->
+    <div class="modal-overlay" id="templateDetailModal">
+        <div class="modal" style="max-width:820px;">
+            <div class="modal-header">
+                <h2 id="templateDetailTitle">Template Details</h2>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <button class="btn btn-ghost btn-sm" id="templateDetailEditBtn" title="Edit Template"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button>
+                    <button class="btn btn-ghost btn-sm" id="templateDetailDeleteBtn" style="color:var(--accent-red);" title="Delete Template"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Delete</button>
+                    <button class="modal-close" id="templateDetailClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                </div>
+            </div>
+            <div class="modal-body" id="templateDetailContent" style="padding:0;max-height:75vh;overflow-y:auto;"></div>
+        </div>
+    </div>
+
+    <!-- Delete Template Confirmation -->
+    <div class="modal-overlay" id="deleteTemplateModal">
+        <div class="modal modal-sm">
+            <div class="modal-header"><h2>Delete Template</h2><button class="modal-close" id="deleteTemplateModalClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+            <div class="modal-body"><div class="delete-warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><p>Are you sure you want to delete template <strong id="deleteTemplateName"></strong>?</p><p class="text-muted">This action cannot be undone. Devices using this template will not be affected.</p></div></div>
+            <div class="modal-footer"><button class="btn btn-ghost" id="deleteTemplateCancelBtn">Cancel</button><button class="btn btn-danger" id="deleteTemplateConfirmBtn">Delete</button></div>
         </div>
     </div>
 

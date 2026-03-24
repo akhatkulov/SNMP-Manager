@@ -1123,10 +1123,15 @@
 
     // ── Templates ─────────────────────────────────────────────────────
     let cachedTemplates = [];
+    let currentViewTemplateData = null;
+    let currentEditTemplateId = null;
+    let tmplTags = {};
+    let tmplItemCounter = 0;
+    let templateToDelete = null;
 
     const categoryIcons = {
-        router: '🔀', switch: '🔌', server: '🖥️', printer: '🖨️',
-        firewall: '🔥', ap: '📡', generic: '⚙️'
+        router: '\u{1F500}', switch: '\u{1F50C}', server: '\u{1F5A5}\uFE0F', printer: '\u{1F5A8}\uFE0F',
+        firewall: '\u{1F525}', ap: '\u{1F4E1}', generic: '\u2699\uFE0F'
     };
     const categoryColors = {
         router: 'var(--accent-blue)', switch: 'var(--accent-green)', server: 'var(--accent-purple)',
@@ -1146,17 +1151,15 @@
             const templates = data.templates || [];
             cachedTemplates = templates;
 
-            // Stats
             const total = templates.length;
             const builtinCount = templates.filter(t => t.builtin).length;
             const customCount = total - builtinCount;
-            const categories = [...new Set(templates.map(t => t.category))];
 
             if (statsGrid) {
                 statsGrid.innerHTML = `
                     <div class="stat-card"><div class="stat-icon stat-icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></div><div class="stat-info"><span class="stat-value">${total}</span><span class="stat-label">Total Templates</span></div></div>
                     <div class="stat-card"><div class="stat-icon stat-icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div class="stat-info"><span class="stat-value">${builtinCount}</span><span class="stat-label">Built-in</span></div></div>
-                    <div class="stat-card"><div class="stat-icon stat-icon-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></div><div class="stat-info"><span class="stat-value">${categories.length}</span><span class="stat-label">Categories</span></div></div>`;
+                    <div class="stat-card"><div class="stat-icon stat-icon-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></div><div class="stat-info"><span class="stat-value">${customCount}</span><span class="stat-label">Custom</span></div></div>`;
             }
 
             if (!templates.length) {
@@ -1165,7 +1168,7 @@
             }
 
             container.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;">${templates.map(t => {
-                const icon = categoryIcons[t.category] || '⚙️';
+                const icon = categoryIcons[t.category] || '\u2699\uFE0F';
                 const color = categoryColors[t.category] || 'var(--text-secondary)';
                 const builtinBadge = t.builtin
                     ? '<span style="font-size:0.68rem;padding:2px 8px;background:var(--accent-green-dim);color:var(--accent-green);border-radius:12px;font-weight:600;">Built-in</span>'
@@ -1189,7 +1192,7 @@
                     </div>
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid var(--border-color);font-size:0.76rem;color:var(--text-muted);">
                         <span>Interval: ${esc(t.default_interval || '60s')}</span>
-                        <span style="color:${color};font-weight:600;">View Items →</span>
+                        <span style="color:${color};font-weight:600;">View Details \u2192</span>
                     </div>
                 </div>`;
             }).join('')}</div>`;
@@ -1202,11 +1205,12 @@
         }
     }
 
-    // View template detail
+    // ── View Template Detail (dedicated modal) ───────────────────────
     async function viewTemplate(id) {
         try {
             const tmpl = await apiCall('GET', `/templates/${id}`);
-            const icon = categoryIcons[tmpl.category] || '⚙️';
+            currentViewTemplateData = tmpl;
+            const icon = categoryIcons[tmpl.category] || '\u2699\uFE0F';
             const color = categoryColors[tmpl.category] || 'var(--text-secondary)';
 
             // Group items by category
@@ -1218,18 +1222,24 @@
             });
 
             const categorySections = Object.entries(itemsByCategory).map(([cat, items]) => {
-                return `<div style="margin-top:12px;">
-                    <div style="font-weight:600;font-size:0.84rem;color:var(--text-primary);margin-bottom:6px;text-transform:capitalize;">${esc(cat)} <span style="color:var(--text-muted);font-weight:400;">(${items.length})</span></div>
+                return `<div style="margin-top:14px;">
+                    <div style="font-weight:600;font-size:0.84rem;color:var(--text-primary);margin-bottom:6px;text-transform:capitalize;">
+                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px;"></span>
+                        ${esc(cat)} <span style="color:var(--text-muted);font-weight:400;">(${items.length} items)</span>
+                    </div>
                     <table class="data-table" style="font-size:0.78rem;"><thead><tr>
-                        <th style="width:30%;">OID</th><th style="width:20%;">Name</th><th>Description</th><th style="width:12%;">Type</th>
+                        <th style="width:28%;">OID</th><th style="width:18%;">Name</th><th>Description</th><th style="width:12%;">Type</th>
                     </tr></thead><tbody>${items.map(item => `<tr>
                         <td style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--text-muted);">${esc(item.oid)}</td>
                         <td style="font-weight:500;color:var(--accent-cyan);">${esc(item.name)}</td>
-                        <td style="color:var(--text-secondary);">${esc(item.description || '—')}</td>
+                        <td style="color:var(--text-secondary);">${esc(item.description || '\u2014')}</td>
                         <td><span class="badge badge-sm" style="background:rgba(100,120,160,0.12);color:var(--text-muted);">${esc(item.type)}</span></td>
                     </tr>`).join('')}</tbody></table>
                 </div>`;
             }).join('');
+
+            const tagsHtml = tmpl.default_tags && Object.keys(tmpl.default_tags).length
+                ? `<div style="margin-top:8px;"><span style="font-size:0.78rem;color:var(--text-muted);">Default Tags:</span> ${Object.entries(tmpl.default_tags).map(([k, v]) => `<span class="badge badge-sm" style="margin:2px;background:var(--accent-orange-dim);color:var(--accent-orange);">${esc(k)}: ${esc(v)}</span>`).join('')}</div>` : '';
 
             const content = `
                 <div class="event-detail-header" style="padding:16px 20px;">
@@ -1238,7 +1248,7 @@
                         <span style="font-size:1.15rem;font-weight:700;color:var(--text-primary);">${esc(tmpl.name)}</span>
                         ${tmpl.builtin ? '<span class="badge" style="background:var(--accent-green-dim);color:var(--accent-green);">Built-in</span>' : '<span class="badge" style="background:var(--accent-purple-dim);color:var(--accent-purple);">Custom</span>'}
                     </div>
-                    <div style="margin-top:6px;font-size:0.86rem;color:var(--text-secondary);">${esc(tmpl.description)}</div>
+                    <div style="margin-top:6px;font-size:0.86rem;color:var(--text-secondary);line-height:1.5;">${esc(tmpl.description)}</div>
                     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
                         <span class="badge" style="background:${color}22;color:${color};font-weight:600;">Category: ${esc(tmpl.category)}</span>
                         <span class="badge" style="background:rgba(100,120,160,0.12);color:var(--text-muted);">Vendor: ${esc(tmpl.vendor)}</span>
@@ -1246,13 +1256,29 @@
                         <span class="badge" style="background:var(--accent-blue-dim);color:var(--accent-blue);font-weight:600;">${(tmpl.items || []).length} Monitoring Items</span>
                     </div>
                     ${(tmpl.oid_groups || []).length ? `<div style="margin-top:8px;"><span style="font-size:0.78rem;color:var(--text-muted);">OID Groups:</span> ${tmpl.oid_groups.map(g => `<span class="badge badge-sm" style="margin:2px;background:var(--accent-blue-dim);color:var(--accent-blue);">${esc(g)}</span>`).join('')}</div>` : ''}
+                    ${tagsHtml}
                 </div>
-                <div style="padding:0 20px 20px;max-height:60vh;overflow-y:auto;">
-                    ${categorySections || '<div class="empty-state"><p>No monitoring items</p></div>'}
+                <div style="padding:0 20px 20px;">
+                    <div style="font-weight:700;font-size:0.92rem;color:var(--text-primary);margin-bottom:4px;">Monitoring Items</div>
+                    ${categorySections || '<div class="empty-state"><p>No monitoring items defined</p></div>'}
                 </div>`;
 
-            $('#eventDetailContent').innerHTML = content;
-            showModal('eventDetailModal');
+            $('#templateDetailContent').innerHTML = content;
+
+            // Show/hide edit/delete buttons for builtin vs custom
+            const editBtn = $('#templateDetailEditBtn');
+            const deleteBtn = $('#templateDetailDeleteBtn');
+            if (tmpl.builtin) {
+                editBtn.style.display = 'none';
+                deleteBtn.style.display = 'none';
+            } else {
+                editBtn.style.display = '';
+                deleteBtn.style.display = '';
+                editBtn.onclick = () => { hideModal('templateDetailModal'); openEditTemplateModal(tmpl.id); };
+                deleteBtn.onclick = () => { hideModal('templateDetailModal'); confirmDeleteTemplate(tmpl.id, tmpl.name); };
+            }
+            $('#templateDetailTitle').textContent = tmpl.name;
+            showModal('templateDetailModal');
         } catch (err) {
             showToast('Error loading template: ' + err.message, 'error');
         }
@@ -1260,7 +1286,204 @@
 
     window._viewTemplate = viewTemplate;
 
-    // Populate template dropdown in device form
+    // ── Template Create ──────────────────────────────────────────────
+    function openCreateTemplateModal() {
+        currentEditTemplateId = null;
+        tmplTags = {};
+        tmplItemCounter = 0;
+        $('#templateModalTitle').textContent = 'Create Template';
+        $('#templateSubmitBtn').textContent = 'Create Template';
+        $('#tmplId').value = '';
+        $('#tmplId').disabled = false;
+        $('#tmplName').value = '';
+        $('#tmplDescription').value = '';
+        $('#tmplCategory').value = 'generic';
+        $('#tmplVendor').value = 'Any';
+        $('#tmplInterval').value = '60s';
+        $$('#tmplOidGroupCheckboxes input').forEach(cb => { cb.checked = cb.value === 'system'; });
+        $('#tmplTagKey').value = '';
+        $('#tmplTagValue').value = '';
+        renderTmplTags();
+        $('#tmplItemsContainer').innerHTML = '';
+        addTemplateItemRow();
+        showModal('templateModal');
+    }
+
+    // ── Template Edit ────────────────────────────────────────────────
+    async function openEditTemplateModal(id) {
+        try {
+            const tmpl = await apiCall('GET', `/templates/${id}`);
+            if (tmpl.builtin) { showToast('Built-in templates cannot be edited', 'error'); return; }
+
+            currentEditTemplateId = id;
+            tmplTags = { ...(tmpl.default_tags || {}) };
+            tmplItemCounter = 0;
+            $('#templateModalTitle').textContent = 'Edit Template';
+            $('#templateSubmitBtn').textContent = 'Save Changes';
+            $('#tmplId').value = tmpl.id;
+            $('#tmplId').disabled = true;
+            $('#tmplName').value = tmpl.name;
+            $('#tmplDescription').value = tmpl.description || '';
+            $('#tmplCategory').value = tmpl.category || 'generic';
+            $('#tmplVendor').value = tmpl.vendor || 'Any';
+            const intervals = ['15s','30s','60s','120s','300s','600s'];
+            $('#tmplInterval').value = intervals.includes(tmpl.default_interval) ? tmpl.default_interval : '60s';
+            $$('#tmplOidGroupCheckboxes input').forEach(cb => { cb.checked = (tmpl.oid_groups || []).includes(cb.value); });
+            renderTmplTags();
+
+            const container = $('#tmplItemsContainer');
+            container.innerHTML = '';
+            (tmpl.items || []).forEach(item => addTemplateItemRow(item));
+            if (!(tmpl.items || []).length) addTemplateItemRow();
+
+            showModal('templateModal');
+        } catch (err) {
+            showToast('Error loading template: ' + err.message, 'error');
+        }
+    }
+
+    // ── OID Item Row Management ──────────────────────────────────────
+    function addTemplateItemRow(item) {
+        tmplItemCounter++;
+        const container = $('#tmplItemsContainer');
+        const row = document.createElement('div');
+        row.className = 'tmpl-item-row';
+        row.style.cssText = 'display:grid;grid-template-columns:1fr 0.8fr 1fr 0.6fr 0.5fr auto;gap:6px;align-items:start;margin-bottom:8px;padding:10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:8px;transition:border-color 0.2s;';
+
+        const oid = item && item.oid ? item.oid : '';
+        const name = item && item.name ? item.name : '';
+        const desc = item && item.description ? item.description : '';
+        const type = item && item.type ? item.type : 'OctetString';
+        const cat = item && item.category ? item.category : 'system';
+
+        const types = ['OctetString','Integer','Counter32','Counter64','Gauge32','TimeTicks','IPAddress'];
+        const typeOptions = types.map(t => `<option value="${t}" ${t === type ? 'selected' : ''}>${t}</option>`).join('');
+
+        row.innerHTML = `
+            <div><label style="font-size:0.7rem;color:var(--text-muted);display:block;margin-bottom:2px;">OID *</label><input type="text" class="tmpl-item-oid" placeholder="1.3.6.1.2.1.1.1" value="${esc(oid)}" style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;"></div>
+            <div><label style="font-size:0.7rem;color:var(--text-muted);display:block;margin-bottom:2px;">Name *</label><input type="text" class="tmpl-item-name" placeholder="sysDescr" value="${esc(name)}"></div>
+            <div><label style="font-size:0.7rem;color:var(--text-muted);display:block;margin-bottom:2px;">Description</label><input type="text" class="tmpl-item-desc" placeholder="System description" value="${esc(desc)}"></div>
+            <div><label style="font-size:0.7rem;color:var(--text-muted);display:block;margin-bottom:2px;">Type</label><select class="tmpl-item-type" style="font-size:0.82rem;">${typeOptions}</select></div>
+            <div><label style="font-size:0.7rem;color:var(--text-muted);display:block;margin-bottom:2px;">Category</label><input type="text" class="tmpl-item-cat" placeholder="system" value="${esc(cat)}" style="font-size:0.82rem;"></div>
+            <div style="padding-top:18px;"><button type="button" class="btn btn-ghost btn-sm tmpl-remove-item-btn" style="color:var(--accent-red);padding:4px;" title="Remove item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+        `;
+        container.appendChild(row);
+        row.querySelector('.tmpl-remove-item-btn').addEventListener('click', () => row.remove());
+        if (!item) setTimeout(() => row.querySelector('.tmpl-item-oid')?.focus(), 50);
+    }
+
+    // ── Tags Management ──────────────────────────────────────────────
+    function renderTmplTags() {
+        const list = $('#tmplTagsList');
+        if (!list) return;
+        list.innerHTML = Object.entries(tmplTags).map(([k, v]) =>
+            `<span class="badge" style="background:var(--accent-orange-dim);color:var(--accent-orange);display:inline-flex;align-items:center;gap:4px;padding:3px 8px;">
+                ${esc(k)}: ${esc(v)}
+                <span style="cursor:pointer;font-weight:700;margin-left:2px;" onclick="window._removeTmplTag('${esc(k)}')" title="Remove">\u00D7</span>
+            </span>`
+        ).join('');
+    }
+
+    function addTmplTag() {
+        const key = $('#tmplTagKey').value.trim();
+        const val = $('#tmplTagValue').value.trim();
+        if (!key || !val) { showToast('Both tag key and value are required', 'error'); return; }
+        tmplTags[key] = val;
+        $('#tmplTagKey').value = '';
+        $('#tmplTagValue').value = '';
+        renderTmplTags();
+    }
+
+    function removeTmplTag(key) {
+        delete tmplTags[key];
+        renderTmplTags();
+    }
+    window._removeTmplTag = removeTmplTag;
+
+    // ── Template Form Submission ─────────────────────────────────────
+    function collectTemplateFormData() {
+        const oidGroups = [];
+        $$('#tmplOidGroupCheckboxes input:checked').forEach(cb => oidGroups.push(cb.value));
+
+        const items = [];
+        $$('.tmpl-item-row').forEach(row => {
+            const oid = row.querySelector('.tmpl-item-oid')?.value.trim();
+            const name = row.querySelector('.tmpl-item-name')?.value.trim();
+            if (!oid || !name) return;
+            items.push({
+                oid: oid,
+                name: name,
+                description: row.querySelector('.tmpl-item-desc')?.value.trim() || '',
+                type: row.querySelector('.tmpl-item-type')?.value || 'OctetString',
+                category: row.querySelector('.tmpl-item-cat')?.value.trim() || 'system',
+            });
+        });
+
+        return {
+            id: $('#tmplId').value.trim(),
+            name: $('#tmplName').value.trim(),
+            description: $('#tmplDescription').value.trim(),
+            category: $('#tmplCategory').value,
+            vendor: $('#tmplVendor').value.trim() || 'Any',
+            oid_groups: oidGroups.length ? oidGroups : ['system'],
+            items: items,
+            default_tags: Object.keys(tmplTags).length ? Object.assign({}, tmplTags) : {},
+            default_interval: $('#tmplInterval').value,
+        };
+    }
+
+    async function handleTemplateSubmit(e) {
+        e.preventDefault();
+        const data = collectTemplateFormData();
+
+        if (!data.id || !data.name) {
+            showToast('Template ID and Name are required', 'error');
+            return;
+        }
+        if (!data.items.length) {
+            showToast('At least one OID item is required', 'error');
+            return;
+        }
+
+        try {
+            if (currentEditTemplateId) {
+                await apiCall('PUT', `/templates/${currentEditTemplateId}`, data);
+                showToast('Template "' + data.name + '" updated successfully', 'success');
+            } else {
+                await apiCall('POST', '/templates', data);
+                showToast('Template "' + data.name + '" created successfully', 'success');
+            }
+            hideModal('templateModal');
+            $('#tmplId').disabled = false;
+            loadTemplates();
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    }
+
+    // ── Delete Template ──────────────────────────────────────────────
+    function confirmDeleteTemplate(id, name) {
+        templateToDelete = id;
+        $('#deleteTemplateName').textContent = name || id;
+        showModal('deleteTemplateModal');
+    }
+
+    async function deleteTemplateConfirm() {
+        if (!templateToDelete) return;
+        try {
+            await apiCall('DELETE', `/templates/${templateToDelete}`);
+            showToast('Template "' + templateToDelete + '" deleted', 'success');
+            hideModal('deleteTemplateModal');
+            templateToDelete = null;
+            loadTemplates();
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    }
+
+    window._confirmDeleteTemplate = confirmDeleteTemplate;
+
+    // ── Template Dropdown (device form) ──────────────────────────────
     async function populateTemplateDropdown() {
         const sel = $('#devTemplate');
         if (!sel) return;
@@ -1269,8 +1492,7 @@
             const data = await apiCall('GET', '/templates');
             const templates = data.templates || [];
 
-            sel.innerHTML = '<option value="">— No template —</option>';
-            // Group by category
+            sel.innerHTML = '<option value="">\u2014 No template \u2014</option>';
             const byCategory = {};
             templates.forEach(t => {
                 if (!byCategory[t.category]) byCategory[t.category] = [];
@@ -1280,11 +1502,11 @@
             Object.keys(byCategory).sort().forEach(cat => {
                 const icon = categoryIcons[cat] || '';
                 const group = document.createElement('optgroup');
-                group.label = `${icon} ${cat.charAt(0).toUpperCase() + cat.slice(1)}`;
+                group.label = icon + ' ' + cat.charAt(0).toUpperCase() + cat.slice(1);
                 byCategory[cat].forEach(t => {
                     const opt = document.createElement('option');
                     opt.value = t.id;
-                    opt.textContent = `${t.name} (${t.item_count} OIDs)`;
+                    opt.textContent = t.name + ' (' + t.item_count + ' OIDs)';
                     group.appendChild(opt);
                 });
                 sel.appendChild(group);
@@ -1300,14 +1522,13 @@
         if (!tmplId) return;
 
         try {
-            const tmpl = await apiCall('GET', `/templates/${tmplId}`);
-            // Auto-check OID groups from template
+            const tmpl = await apiCall('GET', '/templates/' + tmplId);
             if (tmpl.oid_groups) {
                 $$('#oidGroupCheckboxes input').forEach(cb => {
                     cb.checked = tmpl.oid_groups.includes(cb.value);
                 });
             }
-            showToast(`Template "${tmpl.name}" applied: ${(tmpl.oid_groups || []).join(', ')}`, 'info');
+            showToast('Template "' + tmpl.name + '" applied: ' + (tmpl.oid_groups || []).join(', '), 'info');
         } catch (err) {
             console.log('Could not load template details:', err.message);
         }
@@ -1472,6 +1693,23 @@
 
         // Template category filter
         $('#templateCategoryFilter')?.addEventListener('change', () => loadTemplates());
+
+        // Template CRUD
+        $('#createTemplateBtn')?.addEventListener('click', openCreateTemplateModal);
+        $('#templateForm')?.addEventListener('submit', handleTemplateSubmit);
+        $('#tmplAddItemBtn')?.addEventListener('click', () => addTemplateItemRow());
+        $('#tmplAddTagBtn')?.addEventListener('click', addTmplTag);
+        const closeTemplate = () => { hideModal('templateModal'); $('#tmplId').disabled = false; };
+        $('#templateModalClose')?.addEventListener('click', closeTemplate);
+        $('#templateCancelBtn')?.addEventListener('click', closeTemplate);
+
+        // Template detail modal
+        $('#templateDetailClose')?.addEventListener('click', () => hideModal('templateDetailModal'));
+
+        // Delete template modal
+        $('#deleteTemplateModalClose')?.addEventListener('click', () => hideModal('deleteTemplateModal'));
+        $('#deleteTemplateCancelBtn')?.addEventListener('click', () => hideModal('deleteTemplateModal'));
+        $('#deleteTemplateConfirmBtn')?.addEventListener('click', deleteTemplateConfirm);
 
         // System info refresh button
         $('#refreshSysInfoBtn')?.addEventListener('click', loadSystemInfo);
