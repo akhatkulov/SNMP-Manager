@@ -11,7 +11,7 @@ MIB_BASE="/usr/share/snmp/mibs"
 MIB_EXTRA="${MIB_BASE}/extra"
 MIB_VENDOR="${MIB_BASE}/vendor"
 TMP_DIR=$(mktemp -d /tmp/mib-download.XXXXXX)
-LOG_FILE="/tmp/mib-download.log"
+LOG_FILE="${HOME}/.mib-download.log"
 
 # Colors
 RED='\033[0;31m'
@@ -180,8 +180,7 @@ log_info "RFC MIBlar: ${TOTAL_DOWNLOADED} yangi, ${TOTAL_SKIPPED} mavjud"
 log_step "2/5 — Kengaytirilgan MIBlar (ENTITY, LLDP, VLAN, PoE)"
 
 EXTENDED_MIBS=(
-    # ENTITY-MIB (hardware inventory)
-    "https://raw.githubusercontent.com/hardaker/net-snmp/master/mibs/ENTITY-MIB.txt"
+    # ENTITY-MIB (hardware inventory) — from Cisco (hardaker repo 404)
     "https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ENTITY-MIB.my"
     # LLDP - Link Layer Discovery Protocol
     "https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/LLDP-MIB.my"
@@ -228,16 +227,14 @@ COMMUNITY_MIBS=(
     "https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/OSPF-TRAP-MIB.my"
     # BGP
     "https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/BGP4-MIB.my"
-    # RSTP
-    "https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/RSTP-MIB.my"
+    # RSTP (Cisco version fails validation, use LibreNMS)
+    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/RSTP-MIB"
     # VRRP
     "https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/VRRP-MIB.my"
     # IEEE 802.1X
     "https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/IEEE8021-PAE-MIB.my"
-    # Network Services
-    "https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/NETWORK-SERVICES-MIB.my"
-    # SNMPv2 Party (legacy)
-    "https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-REPEATER-MIB.my"
+    # Network Services (Cisco version fails MIB validation — skip)
+    # SNMPv2 Party / Repeater (Cisco version fails MIB validation — skip)
 )
 
 before=$TOTAL_DOWNLOADED
@@ -258,19 +255,11 @@ log_info "Eltex MIBlar yuklanmoqda..."
 mkdir -p "${MIB_VENDOR}/eltex"
 
 ELTEX_MIBS=(
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-MES-PHYSICAL-DESCRIPTION-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-MES-ISS-CPU-UTIL-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-MES-TRAPS-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-MES-ENV-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-MES-HARDWARE-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-MES-FAN-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-MES-NG"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-MES-SYSLOG-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-MES-COPY-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-PHY-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-BASE-MIB"
+    # Actual files in LibreNMS eltex directory
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-SMI-ACTUAL"
+    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-LTP8X"
+    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-LTP8X-STANDALONE"
+    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/eltex/ELTEX-PP4"
 )
 
 before=$TOTAL_DOWNLOADED
@@ -287,8 +276,8 @@ log_info "MikroTik MIBlar yuklanmoqda..."
 mkdir -p "${MIB_VENDOR}/mikrotik"
 
 MIKROTIK_MIBS=(
+    # Only one file exists in LibreNMS mikrotik directory
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/mikrotik/MIKROTIK-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/mikrotik/MIKROTIK-MIB.txt"
 )
 
 before=$TOTAL_DOWNLOADED
@@ -308,9 +297,11 @@ HUAWEI_MIBS=(
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/huawei/HUAWEI-MIB"
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/huawei/HUAWEI-ENTITY-EXTENT-MIB"
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/huawei/HUAWEI-ENERGYMNGT-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/huawei/HUAWEI-SWITCH-SRV-RES-TRAP-MIB"
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/huawei/HUAWEI-PORT-MIB"
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/huawei/HUAWEI-TC-MIB"
+    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/huawei/HUAWEI-ENTITY-TRAP-MIB"
+    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/huawei/HUAWEI-CPU-MIB"
+    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/huawei/HUAWEI-MEMORY-MIB"
 )
 
 before=$TOTAL_DOWNLOADED
@@ -327,9 +318,12 @@ log_info "D-Link MIBlar yuklanmoqda..."
 mkdir -p "${MIB_VENDOR}/dlink"
 
 DLINK_MIBS=(
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/dlink/DLINK-EQUIPMENT-MIB"
+    # Actual files in LibreNMS dlink directory
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/dlink/EQUIPMENT-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/dlink/SAFEGUARD-ENGINE-MIB"
+    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/dlink/DLINKSW-SAFEGUARD-ENGINE-MIB"
+    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/dlink/DLINK-ID-REC-MIB"
+    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/dlink/AGENT-GENERAL-MIB"
+    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/dlink/DLINKSW-ENTITY-EXT-MIB"
 )
 
 before=$TOTAL_DOWNLOADED
@@ -358,7 +352,7 @@ LIBRENMS_COMMON=(
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/OSPF-MIB"
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/VRRP-MIB"
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/MAU-MIB"
-    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/CISCO-SMI"
+    "https://raw.githubusercontent.com/librenms/librenms/master/mibs/cisco/CISCO-SMI"
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/IEEE8023-LAG-MIB"
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/IPMROUTE-STD-MIB"
     "https://raw.githubusercontent.com/librenms/librenms/master/mibs/MPLS-TC-STD-MIB"
