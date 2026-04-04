@@ -28,8 +28,9 @@ type Poller struct {
 	templates *snmptemplate.Store
 
 	// Worker pool
-	jobCh    chan *pollJob
-	wg       sync.WaitGroup
+	jobCh   chan *pollJob
+	semPool *SemaphorePool
+	wg      sync.WaitGroup
 
 	// Metrics
 	mu          sync.RWMutex
@@ -65,6 +66,12 @@ func (p *Poller) SetTemplateStore(ts *snmptemplate.Store) {
 
 // New creates a new SNMP Poller.
 func New(log zerolog.Logger, cfg config.PollerConfig, registry *device.Registry, resolver *mib.Resolver, pipe *pipeline.Pipeline) *Poller {
+	// Semaphore: allow at most Workers*2 concurrent SNMP sessions.
+	// This prevents OS socket exhaustion when thousands of devices are polled.
+	semSize := cfg.Workers * 2
+	if semSize <= 0 {
+		semSize = 100
+	}
 	return &Poller{
 		log:      log.With().Str("component", "poller").Logger(),
 		cfg:      cfg,
@@ -72,6 +79,7 @@ func New(log zerolog.Logger, cfg config.PollerConfig, registry *device.Registry,
 		resolver: resolver,
 		pipe:     pipe,
 		jobCh:    make(chan *pollJob, cfg.Workers*2),
+		semPool:  NewSemaphorePool(semSize, cfg.Timeout),
 		progress: make(map[string]*PollProgress),
 	}
 }
@@ -299,78 +307,11 @@ func (p *Poller) doPoll(ctx context.Context, dev *device.Device) ([]*pipeline.SN
 		}
 	}
 
-	// --- Poll table OIDs with BulkWalk ---
-	// OID prefixes for interface name resolution
-	ifNamePrefix := ".1.3.6.1.2.1.31.1.1.1.1."   // ifName
-	ifDescrPrefix := ".1.3.6.1.2.1.2.2.1.2."      // ifDescr
-	totalPDUs := len(events) // count scalar events already collected
-
-	for i, oid := range tableOids {
-		walkOid := oid
-		if !strings.HasPrefix(walkOid, ".") {
-			walkOid = "." + walkOid
-		}
-
-		// Resolve OID name for logging
-		oidLabel := walkOid
-		if entry, ok := p.resolver.Resolve(oid); ok {
-			oidLabel = entry.Name
-		}
-
-		// Update real-time progress
-		p.setProgress(dev.Name, oidLabel, i+1, len(tableOids), totalPDUs)
-
-		p.log.Info().
-			Str("device", dev.Name).
-			Str("oid", oidLabel).
-			Int("progress", i+1).
-			Int("total", len(tableOids)).
-			Msg("walking table OID")
-
-		walkStart := time.Now()
-		pduCount := 0
-
-		err := snmpClient.BulkWalk(walkOid, func(pdu gosnmp.SnmpPDU) error {
-			if pdu.Type == gosnmp.NoSuchObject || pdu.Type == gosnmp.NoSuchInstance {
-				return nil
-			}
-
-			// Cache ifName / ifDescr for interface index resolution
-			pduOid := pdu.Name
-			if strings.HasPrefix(pduOid, ifNamePrefix) {
-				idx := pduOid[len(ifNamePrefix):]
-				if name, ok := pdu.Value.([]byte); ok && len(name) > 0 {
-					dev.SetInterfaceName(idx, string(name))
-				} else if name, ok := pdu.Value.(string); ok && len(name) > 0 {
-					dev.SetInterfaceName(idx, name)
-				}
-			} else if strings.HasPrefix(pduOid, ifDescrPrefix) {
-				idx := pduOid[len(ifDescrPrefix):]
-				if _, exists := dev.GetInterfaceName(idx); !exists {
-					if name, ok := pdu.Value.([]byte); ok && len(name) > 0 {
-						dev.SetInterfaceName(idx, string(name))
-					} else if name, ok := pdu.Value.(string); ok && len(name) > 0 {
-						dev.SetInterfaceName(idx, name)
-					}
-				}
-			}
-
-			event := p.variableToEvent(dev, &pdu)
-			events = append(events, event)
-			pduCount++
-			totalPDUs++
-			// Stream immediately to pipeline — don't wait for entire walk
-			p.pipe.Submit(event)
-			return nil
-		})
-
-		walkDur := time.Since(walkStart)
-		if err != nil {
-			p.log.Warn().Err(err).Str("device", dev.Name).Str("oid", oidLabel).Dur("took", walkDur).Msg("SNMP BulkWalk failed")
-		} else {
-			p.log.Info().Str("device", dev.Name).Str("oid", oidLabel).Int("pdus", pduCount).Dur("took", walkDur).Msg("BulkWalk completed")
-		}
-	}
+	// --- Poll table OIDs with parallel BulkWalk ---
+	// Each OID group gets its own GoSNMP client (GoSNMP is not goroutine-safe
+	// on a shared connection, so we open separate UDP sockets per goroutine).
+	totalPDUs := len(events)
+	p.walkTablesParallel(ctx, dev, tableOids, &totalPDUs)
 
 	// Also try to get system info to update device metadata
 	p.updateDeviceInfo(snmpClient, dev)
@@ -385,6 +326,113 @@ func (p *Poller) doPoll(ctx context.Context, dev *device.Device) ([]*pipeline.SN
 		Msg("✅ poll completed")
 
 	return events, nil
+}
+
+// walkTablesParallel walks multiple table OIDs concurrently (up to 4 parallel
+// walks per device).  Each goroutine creates its own GoSNMP client because
+// GoSNMP connections are NOT goroutine-safe for concurrent requests.
+func (p *Poller) walkTablesParallel(ctx context.Context, dev *device.Device, tableOids []string, totalPDUs *int) {
+	const maxParallelWalks = 4
+
+	ifNamePrefix := ".1.3.6.1.2.1.31.1.1.1.1." // ifName
+	ifDescrPrefix := ".1.3.6.1.2.1.2.2.1.2."   // ifDescr
+
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex // guards totalPDUs updates
+		innerSem = make(chan struct{}, maxParallelWalks)
+	)
+
+	for i, oid := range tableOids {
+		wg.Add(1)
+		innerSem <- struct{}{}
+
+		go func(idx int, walkOidBase string) {
+			defer wg.Done()
+			defer func() { <-innerSem }()
+
+			walkOid := walkOidBase
+			if !strings.HasPrefix(walkOid, ".") {
+				walkOid = "." + walkOid
+			}
+
+			oidLabel := walkOid
+			if entry, ok := p.resolver.Resolve(walkOidBase); ok {
+				oidLabel = entry.Name
+			}
+
+			// Progress update
+			mu.Lock()
+			p.setProgress(dev.Name, oidLabel, idx+1, len(tableOids), *totalPDUs)
+			mu.Unlock()
+
+			p.log.Info().
+				Str("device", dev.Name).
+				Str("oid", oidLabel).
+				Int("progress", idx+1).
+				Int("total", len(tableOids)).
+				Msg("walking table OID (parallel)")
+
+			// Create a dedicated SNMP client for this walk goroutine.
+			walkClient, err := p.createSNMPClient(dev)
+			if err != nil {
+				p.log.Warn().Err(err).Str("oid", oidLabel).Msg("failed to create walk client")
+				return
+			}
+			if err := walkClient.ConnectIPv4(); err != nil {
+				p.log.Warn().Err(err).Str("device", dev.Name).Str("oid", oidLabel).Msg("walk client connect failed")
+				return
+			}
+			defer walkClient.Conn.Close()
+
+			walkStart := time.Now()
+			pduCount := 0
+
+			_ = walkClient.BulkWalk(walkOid, func(pdu gosnmp.SnmpPDU) error {
+				if pdu.Type == gosnmp.NoSuchObject || pdu.Type == gosnmp.NoSuchInstance {
+					return nil
+				}
+				// Cache interface names for index resolution
+				pduOid := pdu.Name
+				if strings.HasPrefix(pduOid, ifNamePrefix) {
+					ifIdx := pduOid[len(ifNamePrefix):]
+					if name, ok := pdu.Value.([]byte); ok && len(name) > 0 {
+						dev.SetInterfaceName(ifIdx, string(name))
+					} else if name, ok := pdu.Value.(string); ok && len(name) > 0 {
+						dev.SetInterfaceName(ifIdx, name)
+					}
+				} else if strings.HasPrefix(pduOid, ifDescrPrefix) {
+					ifIdx := pduOid[len(ifDescrPrefix):]
+					if _, exists := dev.GetInterfaceName(ifIdx); !exists {
+						if name, ok := pdu.Value.([]byte); ok && len(name) > 0 {
+							dev.SetInterfaceName(ifIdx, string(name))
+						} else if name, ok := pdu.Value.(string); ok && len(name) > 0 {
+							dev.SetInterfaceName(ifIdx, name)
+						}
+					}
+				}
+
+				event := p.variableToEvent(dev, &pdu)
+				p.pipe.Submit(event) // stream immediately
+				pduCount++
+				return nil
+			})
+
+			walkDur := time.Since(walkStart)
+			p.log.Info().
+				Str("device", dev.Name).
+				Str("oid", oidLabel).
+				Int("pdus", pduCount).
+				Dur("took", walkDur).
+				Msg("parallel BulkWalk completed")
+
+			mu.Lock()
+			*totalPDUs += pduCount
+			mu.Unlock()
+		}(i, oid)
+	}
+
+	wg.Wait()
 }
 
 // isScalarOID returns true if the OID is a scalar (single-instance) value.
@@ -417,11 +465,12 @@ func isScalarOID(oid string) bool {
 // createSNMPClient creates a gosnmp client for the given device.
 func (p *Poller) createSNMPClient(dev *device.Device) (*gosnmp.GoSNMP, error) {
 	client := &gosnmp.GoSNMP{
-		Target:    dev.IP,
-		Port:      uint16(dev.Port),
-		Timeout:   p.cfg.Timeout,
-		Retries:   p.cfg.Retries,
-		MaxOids:   p.cfg.MaxOIDsPerRequest,
+		Target:         dev.IP,
+		Port:           uint16(dev.Port),
+		Timeout:        p.cfg.Timeout,
+		Retries:        p.cfg.Retries,
+		MaxOids:        p.cfg.MaxOIDsPerRequest,
+		MaxRepetitions: 50, // GETBULK: fetch 50 rows per PDU (sweet spot 25-100)
 	}
 
 	switch strings.ToLower(dev.SNMPVersion) {
@@ -478,33 +527,27 @@ func (p *Poller) variableToEvent(dev *device.Device, v *gosnmp.SnmpPDU) *pipelin
 	}
 
 	event := &pipeline.SNMPEvent{
-		ID:        uuid.New().String(),
-		Timestamp: time.Now(),
-		EventType: pipeline.EventTypePoll,
-		Source: pipeline.SourceInfo{
-			IP:         dev.IP,
-			Port:       dev.Port,
-			Hostname:   dev.SysName,
-			DeviceType: dev.DeviceType,
-			Vendor:     dev.Vendor,
-			SysName:    dev.SysName,
-		},
-		SNMP: pipeline.SNMPData{
-			Version:     dev.SNMPVersion,
-			OID:         oid,
-			OIDName:     oidName,
-			OIDModule:   oidModule,
-			Value:       value,
-			ValueType:   valueType,
-			ValueString: fmt.Sprintf("%v", value),
-			RequestType: "get",
-		},
+		ID:             uuid.New().String(),
+		Timestamp:      time.Now(),
+		EventType:      pipeline.EventTypePoll,
+		Version:        dev.SNMPVersion,
+		DeviceIP:       dev.IP,
+		DeviceSysName:  dev.SysName,
+		DeviceHostname: dev.SysName,
+		DeviceType:     dev.DeviceType,
+		DeviceVendor:   dev.Vendor,
+		OID:            oid,
+		OIDName:        oidName,
+		OIDModule:      oidModule,
+		Value:          value,
+		ValueType:      valueType,
+		ValueStr:       fmt.Sprintf("%v", value),
 	}
 
-	// Copy tags from device (thread-safe)
+	// Copy tags from device
 	for k, v := range dev.GetTags() {
-		if event.Source.Location == "" && k == "location" {
-			event.Source.Location = v
+		if event.DeviceLocation == "" && k == "location" {
+			event.DeviceLocation = v
 		}
 	}
 

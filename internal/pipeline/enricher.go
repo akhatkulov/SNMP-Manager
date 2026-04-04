@@ -12,12 +12,12 @@ type Enricher struct {
 
 // AssetInfo holds information about a known network asset.
 type AssetInfo struct {
-	Hostname     string `json:"hostname"`
-	Department   string `json:"department"`
-	Owner        string `json:"owner"`
-	Criticality  string `json:"criticality"` // critical, high, medium, low
-	Location     string `json:"location"`
-	Environment  string `json:"environment"` // production, staging, development
+	Hostname    string `json:"hostname"`
+	Department  string `json:"department"`
+	Owner       string `json:"owner"`
+	Criticality string `json:"criticality"` // critical, high, medium, low
+	Location    string `json:"location"`
+	Environment string `json:"environment"` // production, staging, development
 }
 
 // NewEnricher creates a new event enricher.
@@ -36,33 +36,29 @@ func (e *Enricher) LoadAssets(assets map[string]AssetInfo) {
 
 // Process enriches an event in-place with additional context.
 func (e *Enricher) Process(event *SNMPEvent) {
-	// Enrich from asset database
-	if asset, ok := e.assets[event.Source.IP]; ok {
-		event.Enrichment.AssetCriticality = asset.Criticality
-		if event.Source.Hostname == "" {
-			event.Source.Hostname = asset.Hostname
+	if asset, ok := e.assets[event.DeviceIP]; ok {
+		event.AssetCriticality = asset.Criticality
+
+		if event.DeviceHostname == "" {
+			event.DeviceHostname = asset.Hostname
 		}
-		if event.Source.Location == "" {
-			event.Source.Location = asset.Location
+		if event.DeviceLocation == "" {
+			event.DeviceLocation = asset.Location
 		}
-		if event.Enrichment.CustomFields == nil {
-			event.Enrichment.CustomFields = make(map[string]string)
+		if event.CustomFields == nil {
+			event.CustomFields = make(map[string]string)
 		}
-		event.Enrichment.CustomFields["department"] = asset.Department
-		event.Enrichment.CustomFields["owner"] = asset.Owner
-		event.Enrichment.CustomFields["environment"] = asset.Environment
+		event.CustomFields["department"] = asset.Department
+		event.CustomFields["owner"] = asset.Owner
+		event.CustomFields["environment"] = asset.Environment
 	}
 
-	// Adjust severity based on asset criticality
 	e.adjustSeverity(event)
-
-	// Add default tags
 	e.addTags(event)
 }
 
-// adjustSeverity increases severity for critical assets.
 func (e *Enricher) adjustSeverity(event *SNMPEvent) {
-	if event.Enrichment.AssetCriticality == "critical" && event.Severity < SeverityHigh {
+	if event.AssetCriticality == "critical" && event.Severity < SeverityHigh {
 		event.Severity = event.Severity + 2
 		if event.Severity > SeverityCritical {
 			event.Severity = SeverityCritical
@@ -71,34 +67,24 @@ func (e *Enricher) adjustSeverity(event *SNMPEvent) {
 	}
 }
 
-// addTags adds contextual tags to the event.
 func (e *Enricher) addTags(event *SNMPEvent) {
 	if event.Tags == nil {
 		event.Tags = make([]string, 0)
 	}
 
-	// Add SNMP version tag
-	if event.SNMP.Version != "" {
-		event.Tags = append(event.Tags, "snmp-"+event.SNMP.Version)
+	if event.Version != "" {
+		event.Tags = append(event.Tags, "snmp-"+event.Version)
 	}
-
-	// Add event type tag
 	if event.EventType != "" {
 		event.Tags = append(event.Tags, "type-"+string(event.EventType))
 	}
-
-	// Add vendor tag
-	if event.Source.Vendor != "" {
-		event.Tags = append(event.Tags, "vendor-"+toLower(event.Source.Vendor))
+	if event.DeviceVendor != "" {
+		event.Tags = append(event.Tags, "vendor-"+toLower(event.DeviceVendor))
 	}
-
-	// Add category tag
 	if event.Category != "" {
-		event.Tags = append(event.Tags, "cat-"+event.Category)
+		event.Tags = append(event.Tags, "cat-"+string(event.Category))
 	}
-
-	// Security-specific tags
-	if event.Category == "security" {
+	if event.Category == CategorySecurity {
 		event.Tags = append(event.Tags, "security-alert")
 	}
 }

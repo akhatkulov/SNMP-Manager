@@ -32,45 +32,45 @@ func (f *CEFFormatter) Format(event *pipeline.SNMPEvent) (string, error) {
 	cefSeverity := int(event.Severity)
 
 	// Build event name
-	eventName := event.SNMP.OIDName
+	eventName := event.OIDName
 	if eventName == "" {
-		eventName = event.SNMP.OID
+		eventName = event.OID
 	}
 
 	// Event class ID
-	classID := mapOIDToClassID(event.SNMP.OID)
+	classID := mapOIDToClassID(event.OID)
 
 	// Build extensions
 	extensions := []string{
-		fmt.Sprintf("src=%s", event.Source.IP),
+		fmt.Sprintf("src=%s", event.DeviceIP),
 		fmt.Sprintf("rt=%s", event.Timestamp.Format(time.RFC3339)),
 		fmt.Sprintf("cat=%s", event.Category),
 	}
 
-	if event.Source.Hostname != "" {
-		extensions = append(extensions, fmt.Sprintf("shost=%s", event.Source.Hostname))
+	if event.DeviceHostname != "" {
+		extensions = append(extensions, fmt.Sprintf("shost=%s", event.DeviceHostname))
 	}
-	if event.Source.DeviceType != "" {
-		extensions = append(extensions, fmt.Sprintf("cs1Label=DeviceType cs1=%s", event.Source.DeviceType))
+	if event.DeviceType != "" {
+		extensions = append(extensions, fmt.Sprintf("cs1Label=DeviceType cs1=%s", event.DeviceType))
 	}
-	if event.Source.Vendor != "" {
-		extensions = append(extensions, fmt.Sprintf("cs2Label=Vendor cs2=%s", event.Source.Vendor))
-	}
-
-	extensions = append(extensions, fmt.Sprintf("cs3Label=OID cs3=%s", event.SNMP.OID))
-	extensions = append(extensions, fmt.Sprintf("cs4Label=SNMPVersion cs4=%s", event.SNMP.Version))
-
-	if event.SNMP.ValueString != "" {
-		extensions = append(extensions, fmt.Sprintf("msg=%s", escCEF(event.SNMP.ValueString)))
+	if event.DeviceVendor != "" {
+		extensions = append(extensions, fmt.Sprintf("cs2Label=Vendor cs2=%s", event.DeviceVendor))
 	}
 
-	if event.Source.Location != "" {
-		extensions = append(extensions, fmt.Sprintf("cs5Label=Location cs5=%s", event.Source.Location))
+	extensions = append(extensions, fmt.Sprintf("cs3Label=OID cs3=%s", event.OID))
+	extensions = append(extensions, fmt.Sprintf("cs4Label=SNMPVersion cs4=%s", event.Version))
+
+	if event.ValueStr != "" {
+		extensions = append(extensions, fmt.Sprintf("msg=%s", escCEF(event.ValueStr)))
+	}
+
+	if event.DeviceLocation != "" {
+		extensions = append(extensions, fmt.Sprintf("cs5Label=Location cs5=%s", event.DeviceLocation))
 	}
 
 	// Add variable bindings
-	for i, v := range event.SNMP.Variables {
-		if i >= 5 { // CEF has limited custom fields
+	for i, v := range event.Variables {
+		if i >= 5 {
 			break
 		}
 		label := v.OIDName
@@ -141,29 +141,29 @@ func (f *SyslogFormatter) Format(event *pipeline.SNMPEvent) (string, error) {
 	facility := 16
 	priority := facility*8 + syslogSeverity
 
-	hostname := event.Source.Hostname
+	hostname := event.DeviceHostname
 	if hostname == "" {
-		hostname = event.Source.IP
+		hostname = event.DeviceIP
 	}
 
 	// Structured data
 	sd := fmt.Sprintf("[snmp oid=\"%s\" name=\"%s\" value=\"%s\" version=\"%s\" type=\"%s\"]",
-		event.SNMP.OID,
-		event.SNMP.OIDName,
-		escSD(event.SNMP.ValueString),
-		event.SNMP.Version,
+		event.OID,
+		event.OIDName,
+		escSD(event.ValueStr),
+		event.Version,
 		string(event.EventType),
 	)
 
 	// Message
-	msg := fmt.Sprintf("%s=%s on %s", event.SNMP.OIDName, event.SNMP.ValueString, hostname)
+	msg := fmt.Sprintf("%s=%s on %s", event.OIDName, event.ValueStr, hostname)
 
 	syslog := fmt.Sprintf("<%d>1 %s %s %s %s %s %s %s",
 		priority,
 		event.Timestamp.Format(time.RFC3339),
 		hostname,
 		f.AppName,
-		event.ID[:8], // process ID (truncated UUID)
+		event.ID[:8],
 		mapEventTypeToMsgID(event.EventType),
 		sd,
 		msg,
@@ -191,27 +191,27 @@ func NewLEEFFormatter() *LEEFFormatter {
 // Format converts an SNMPEvent to LEEF format.
 func (f *LEEFFormatter) Format(event *pipeline.SNMPEvent) (string, error) {
 	// LEEF:Version|Vendor|Product|Version|EventID|
-	eventID := event.SNMP.OIDName
+	eventID := event.OIDName
 	if eventID == "" {
-		eventID = event.SNMP.OID
+		eventID = event.OID
 	}
 
 	attrs := []string{
-		fmt.Sprintf("src=%s", event.Source.IP),
+		fmt.Sprintf("src=%s", event.DeviceIP),
 		fmt.Sprintf("sev=%d", int(event.Severity)),
 		fmt.Sprintf("cat=%s", event.Category),
 		fmt.Sprintf("devTime=%s", event.Timestamp.Format(time.RFC3339)),
 	}
 
-	if event.Source.Hostname != "" {
-		attrs = append(attrs, fmt.Sprintf("srcName=%s", event.Source.Hostname))
+	if event.DeviceHostname != "" {
+		attrs = append(attrs, fmt.Sprintf("srcName=%s", event.DeviceHostname))
 	}
 
-	attrs = append(attrs, fmt.Sprintf("oid=%s", event.SNMP.OID))
-	attrs = append(attrs, fmt.Sprintf("oidName=%s", event.SNMP.OIDName))
+	attrs = append(attrs, fmt.Sprintf("oid=%s", event.OID))
+	attrs = append(attrs, fmt.Sprintf("oidName=%s", event.OIDName))
 
-	if event.SNMP.ValueString != "" {
-		attrs = append(attrs, fmt.Sprintf("value=%s", event.SNMP.ValueString))
+	if event.ValueStr != "" {
+		attrs = append(attrs, fmt.Sprintf("value=%s", event.ValueStr))
 	}
 
 	leef := fmt.Sprintf("LEEF:2.0|%s|%s|%s|%s|%s",

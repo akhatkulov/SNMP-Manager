@@ -46,6 +46,22 @@ trap_receiver:
   #     priv_protocol: "AES256"
   #     priv_passphrase: "${SNMP_TRAP_PRIV_PASS}"
 
+  # Regex-based in-memory trap pre-filters (applied BEFORE dedup or pipeline).
+  # Rules are evaluated in order; first match wins. Default action is allow.
+  # filters:
+  #   - name: "drop_link_flap"
+  #     field: "oid"              # oid | source_ip | value
+  #     pattern: "^1\.3\.6\.1\.6\.3\.1\.1\.5\.(3|4)$"  # linkDown / linkUp
+  #     action: "drop"
+  #   - name: "drop_monitoring_probes"
+  #     field: "source_ip"
+  #     pattern: "^10\.0\.99\."
+  #     action: "drop"
+  #   - name: "keep_auth_failure"
+  #     field: "oid"
+  #     pattern: "authenticationFailure"
+  #     action: "keep"
+
 # ── Devices ───────────────────────────────────────────────────────────
 devices:
   # SW2 — Sizning switch qurilmangiz
@@ -81,10 +97,14 @@ devices:
 
 # ── Pipeline ──────────────────────────────────────────────────────────
 pipeline:
-  buffer_size: 10000          # Event buffer size
+  buffer_size: 50000          # Event buffer size (increased for high-volume)
   batch_size: 100             # Batch output size
   flush_interval: 5s          # Max wait before flushing
   workers: 4                  # Pipeline worker goroutines
+
+  # Discard-Unchanged filter: suppress repeated identical metric values.
+  # Only forward to DB when value changes OR heartbeat_interval elapses.
+  # heartbeat_interval: 5m    # Uncomment to enable (default: disabled)
 
   normalizer:
     resolve_oid_names: true
@@ -139,6 +159,18 @@ outputs:
   #   username: "elastic"
   #   password: "changeme"
   #   tls_skip_verify: false
+
+# ── TimescaleDB (High-Performance Metrics Storage) ────────────────────
+# Enable for GB/s throughput via pgx COPY protocol + hypertable chunking.
+# timescaledb:
+#   dsn: "postgres://snmp:snmp_secret@localhost:5432/snmp_metrics?sslmode=disable"
+#   pool_max_conns: 20
+#   pool_min_conns: 5
+#   cache_shards: 16       # History cache shards (reduce mutex contention)
+#   cache_batch_size: 2000 # Rows per COPY flush
+#   cache_flush_ttl: 2s    # Also flush if TTL elapses before batch is full
+#   housekeeping_interval: 1h  # Trend rollup frequency
+#   housekeeping_lookback: 2h  # How far back rollup re-aggregates
 
 # ── REST API ──────────────────────────────────────────────────────────
 api:

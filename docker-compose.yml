@@ -39,6 +39,33 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ── TimescaleDB (High-Performance Metrics Storage) ────────────────────
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: snmp-timescaledb
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=snmp
+      - POSTGRES_PASSWORD=snmp_secret
+      - POSTGRES_DB=snmp_metrics
+    ports:
+      - "5432:5432"
+    volumes:
+      - tsdb-data:/var/lib/postgresql/data
+    networks:
+      - snmp-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snmp -d snmp_metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ── SNMP Manager ──────────────────────────────────────────────────
   snmp-manager:
     build:
@@ -87,6 +114,8 @@ services:
 
 volumes:
   es-data:
+    driver: local
+  tsdb-data:
     driver: local
 
 networks:

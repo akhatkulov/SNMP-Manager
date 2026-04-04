@@ -21,9 +21,10 @@ type Pipeline struct {
 	outputCh     chan *SNMPEvent
 
 	// Stage processors
-	normalizer *Normalizer
-	enricher   *Enricher
-	outputs    []Output
+	normalizer    *Normalizer
+	enricher      *Enricher
+	outputs       []Output
+	discardFilter *DiscardUnchangedFilter // nil = disabled
 
 	// Metrics
 	mu             sync.RWMutex
@@ -71,6 +72,13 @@ func NewPipeline(log zerolog.Logger, cfg PipelineConfig, normalizer *Normalizer,
 		outputs:      outputs,
 	}
 }
+
+// SetDiscardFilter attaches a DiscardUnchangedFilter to the pipeline.
+// Must be called before Run(). Pass nil to disable the filter.
+func (p *Pipeline) SetDiscardFilter(f *DiscardUnchangedFilter) {
+	p.discardFilter = f
+}
+
 
 // Submit adds a raw event to the pipeline for processing.
 // Blocks briefly if the buffer is full rather than dropping events immediately.
@@ -172,7 +180,8 @@ func (p *Pipeline) Run(ctx context.Context) {
 		Msg("pipeline stopped")
 }
 
-// runNormalizer processes raw events through the normalizer.
+// runNormalizer processes raw events through the discard-unchanged filter
+// and then the normalizer.
 func (p *Pipeline) runNormalizer(ctx context.Context, id int) {
 	for event := range p.rawCh {
 		select {
@@ -181,6 +190,21 @@ func (p *Pipeline) runNormalizer(ctx context.Context, id int) {
 		default:
 		}
 
+		// ── Discard-Unchanged gate ─────────────────────────────────────────
+		// Drop events whose value has not changed since the last poll cycle,
+		// unless the heartbeat TTL has elapsed (confirms device is still alive).
+		if p.discardFilter != nil {
+			if forward, reason := p.discardFilter.ShouldForward(event); !forward {
+				p.mu.Lock()
+				p.eventsDropped++
+				p.mu.Unlock()
+				continue // DROP — saves downstream CPU + DB writes
+			} else {
+				event.FilterReason = reason // "new" | "changed" | "heartbeat"
+			}
+		}
+
+		// ── Normalizer ────────────────────────────────────────────────────
 		if p.normalizer != nil {
 			p.normalizer.Process(event)
 		}

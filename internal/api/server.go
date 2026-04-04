@@ -132,6 +132,8 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/v1/templates", s.withAuth(s.handleAddTemplate))
 	mux.HandleFunc("PUT /api/v1/templates/{id}", s.withAuth(s.handleUpdateTemplate))
 	mux.HandleFunc("DELETE /api/v1/templates/{id}", s.withAuth(s.handleDeleteTemplate))
+	mux.HandleFunc("POST /api/v1/templates/import", s.withAuth(s.handleImportTemplates))
+	mux.HandleFunc("GET /api/v1/templates/export", s.withAuth(s.handleExportTemplates))
 
 	// Admin panel auth (no API key required)
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
@@ -1363,4 +1365,113 @@ func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 
 	s.log.Info().Str("id", id).Msg("template deleted via API")
 	s.writeJSON(w, http.StatusOK, map[string]string{"message": "template deleted successfully"})
+}
+
+// handleImportTemplates bulk-imports Zabbix YAML or native JSON templates.
+//
+// Supported content types:
+//   - application/yaml, text/yaml  → Zabbix 6.x/7.x YAML export
+//   - application/json             → native JSON array of Template objects
+//
+// Query parameters:
+//   - mode=skip      (default) – skip templates that already exist
+//   - mode=overwrite           – replace existing templates
+func (s *Server) handleImportTemplates(w http.ResponseWriter, r *http.Request) {
+	if s.templateStore == nil {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "templates not available"})
+		return
+	}
+
+	// Read body (max 32 MB)
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
+	data := make([]byte, 0, 4096)
+	buf := make([]byte, 4096)
+	for {
+		n, err := r.Body.Read(buf)
+		data = append(data, buf[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	if len(data) == 0 {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "request body is empty"})
+		return
+	}
+
+	// Detect format from Content-Type header
+	ct := r.Header.Get("Content-Type")
+	isYAML := strings.Contains(ct, "yaml") || strings.Contains(ct, "yml")
+
+	// Auto-detect: YAML starts with "zabbix_export:" or "---"
+	first := strings.TrimSpace(string(data[:min(len(data), 64)]))
+	if !isYAML && (strings.HasPrefix(first, "zabbix_export:") || strings.HasPrefix(first, "---")) {
+		isYAML = true
+	}
+
+	var templates []*snmptemplate.Template
+	var parseErr error
+
+	if isYAML {
+		templates, parseErr = snmptemplate.ParseZabbixYAML(data)
+	} else {
+		templates, parseErr = snmptemplate.ParseNativeJSON(data)
+	}
+
+	if parseErr != nil {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "parse error: " + parseErr.Error()})
+		return
+	}
+
+	// Resolve import mode
+	mode := snmptemplate.ImportModeSkip
+	if r.URL.Query().Get("mode") == "overwrite" {
+		mode = snmptemplate.ImportModeOverwrite
+	}
+
+	result := s.templateStore.BulkAdd(templates, mode)
+
+	s.log.Info().
+		Int("imported", len(result.Imported)).
+		Int("skipped", len(result.Skipped)).
+		Int("errors", len(result.Errors)).
+		Bool("yaml", isYAML).
+		Msg("bulk template import completed")
+
+	status := http.StatusOK
+	if len(result.Imported) > 0 {
+		status = http.StatusCreated
+	}
+	s.writeJSON(w, status, result)
+}
+
+// handleExportTemplates exports all custom (non-builtin) templates as JSON.
+func (s *Server) handleExportTemplates(w http.ResponseWriter, r *http.Request) {
+	if s.templateStore == nil {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "templates not available"})
+		return
+	}
+
+	includeBuiltin := r.URL.Query().Get("builtin") == "true"
+
+	all := s.templateStore.List()
+	export := make([]*snmptemplate.Template, 0, len(all))
+	for _, t := range all {
+		if includeBuiltin || !t.Builtin {
+			export = append(export, t)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", `attachment; filename="snmp-manager-templates.json"`)
+	w.WriteHeader(http.StatusOK)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(export)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

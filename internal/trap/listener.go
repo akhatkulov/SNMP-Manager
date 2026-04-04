@@ -26,6 +26,7 @@ type Listener struct {
 	resolver *mib.Resolver
 	pipe     *pipeline.Pipeline
 	listener *gosnmp.TrapListener
+	trapFilter *TrapFilter // nil = disabled
 
 	// Deduplication
 	mu       sync.RWMutex
@@ -52,6 +53,12 @@ func NewListener(log zerolog.Logger, cfg config.TrapReceiverConfig, registry *de
 		seen:     make(map[string]time.Time),
 		dedupTTL: 30 * time.Second,
 	}
+}
+
+// SetTrapFilter attaches a TrapFilter to the listener.
+// Must be called before Run().
+func (l *Listener) SetTrapFilter(f *TrapFilter) {
+	l.trapFilter = f
 }
 
 // Run starts the trap listener. Blocks until context is cancelled.
@@ -146,6 +153,20 @@ func (l *Listener) handleTrap(packet *gosnmp.SnmpPacket, addr *net.UDPAddr) {
 	// Convert trap variables to events
 	events := l.trapToEvents(packet, sourceIP)
 
+	// ── Regex pre-filter ──────────────────────────────────────────────────────
+	if l.trapFilter != nil && len(events) > 0 {
+		var vals []string
+		for _, v := range events[0].Variables {
+			vals = append(vals, fmt.Sprintf("%v", v.Value))
+		}
+		if !l.trapFilter.ShouldProcess(events[0].OID, sourceIP, vals) {
+			l.mu.Lock()
+			l.droppedTraps++
+			l.mu.Unlock()
+			return
+		}
+	}
+
 	// Submit to pipeline
 	for _, event := range events {
 		if l.isDuplicate(event) {
@@ -162,76 +183,78 @@ func (l *Listener) handleTrap(packet *gosnmp.SnmpPacket, addr *net.UDPAddr) {
 func (l *Listener) trapToEvents(packet *gosnmp.SnmpPacket, sourceIP string) []*pipeline.SNMPEvent {
 	var events []*pipeline.SNMPEvent
 
-	// Build source info
-	source := pipeline.SourceInfo{
-		IP: sourceIP,
-	}
+	// Device info
+	deviceHostname := ""
+	deviceType := ""
+	deviceVendor := ""
+	deviceLocation := ""
 	if dev, ok := l.registry.GetByIP(sourceIP); ok {
-		source.Hostname = dev.SysName
-		source.DeviceType = dev.DeviceType
-		source.Vendor = dev.Vendor
-		source.SysName = dev.SysName
+		deviceHostname = dev.SysName
+		deviceType = dev.DeviceType
+		deviceVendor = dev.Vendor
 		if loc, ok := dev.Tags["location"]; ok {
-			source.Location = loc
+			deviceLocation = loc
 		}
 	}
 
-	// Determine the trap OID (snmpTrapOID is in the varbinds for v2c/v3)
+	// Collect varbinds
 	trapOID := ""
 	var variables []pipeline.Variable
 
 	for _, v := range packet.Variables {
 		oid := strings.TrimPrefix(v.Name, ".")
 
-		// snmpTrapOID.0 = 1.3.6.1.6.3.1.1.4.1.0
+		// snmpTrapOID.0
 		if oid == "1.3.6.1.6.3.1.1.4.1.0" {
 			if v.Type == gosnmp.ObjectIdentifier {
 				trapOID = strings.TrimPrefix(v.Value.(string), ".")
 			}
 			continue
 		}
-
-		// sysUpTime.0 = 1.3.6.1.2.1.1.3.0 (skip, it's metadata)
+		// sysUpTime.0 — skip (metadata)
 		if oid == "1.3.6.1.2.1.1.3.0" {
 			continue
 		}
 
 		value, valueType := extractTrapValue(&v)
 		variables = append(variables, pipeline.Variable{
-			OID:       oid,
-			Value:     value,
-			ValueType: valueType,
+			OID:   oid,
+			Value: value,
+			Type:  valueType,
 		})
 	}
 
-	// For v1 traps, use the enterprise OID + generic/specific trap
+	// v1: enterprise OID fallback
 	if packet.Version == gosnmp.Version1 && trapOID == "" {
 		trapOID = strings.TrimPrefix(packet.Enterprise, ".")
 	}
-
-	// If no trap OID found, use the first variable's OID
 	if trapOID == "" && len(packet.Variables) > 0 {
 		trapOID = strings.TrimPrefix(packet.Variables[0].Name, ".")
 	}
 
 	event := &pipeline.SNMPEvent{
-		ID:        uuid.New().String(),
-		Timestamp: time.Now(),
-		EventType: pipeline.EventTypeTrap,
-		Source:    source,
-		SNMP: pipeline.SNMPData{
-			Version:     versionString(packet.Version),
-			OID:         trapOID,
-			RequestType: "trap",
-			Variables:   variables,
-		},
+		ID:             uuid.New().String(),
+		Timestamp:      time.Now(),
+		EventType:      pipeline.EventTypeTrap,
+		Version:        versionString(packet.Version),
+		DeviceIP:       sourceIP,
+		DeviceHostname: deviceHostname,
+		DeviceType:     deviceType,
+		DeviceVendor:   deviceVendor,
+		DeviceLocation: deviceLocation,
+		OID:            trapOID,
+		TrapOID:        trapOID,
+		Enterprise:     strings.TrimPrefix(packet.Enterprise, "."),
+		GenericTrap:    packet.GenericTrap,
+		SpecificTrap:   packet.SpecificTrap,
+		Variables:      variables,
 	}
 
-	// Set primary value from variables if available
+	// Primary value from first varbind
 	if len(variables) > 0 {
-		event.SNMP.Value = variables[0].Value
-		event.SNMP.ValueType = variables[0].ValueType
-		event.SNMP.ValueString = fmt.Sprintf("%v", variables[0].Value)
+		event.Value = variables[0].Value
+		event.ValueType = variables[0].Type
+		event.ValueStr = fmt.Sprintf("%v", variables[0].Value)
 	}
 
 	events = append(events, event)
@@ -240,7 +263,7 @@ func (l *Listener) trapToEvents(packet *gosnmp.SnmpPacket, sourceIP string) []*p
 
 // isDuplicate checks if an event is a duplicate (same source + OID within TTL).
 func (l *Listener) isDuplicate(event *pipeline.SNMPEvent) bool {
-	key := fmt.Sprintf("%s:%s", event.Source.IP, event.SNMP.OID)
+	key := fmt.Sprintf("%s:%s", event.DeviceIP, event.OID)
 
 	l.mu.Lock()
 	defer l.mu.Unlock()

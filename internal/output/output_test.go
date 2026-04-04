@@ -15,25 +15,20 @@ import (
 
 func sampleEvent() *pipeline.SNMPEvent {
 	return &pipeline.SNMPEvent{
-		ID:        "test-evt-001",
-		Timestamp: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
-		EventType: pipeline.EventTypeTrap,
-		Source: pipeline.SourceInfo{
-			IP:       "10.0.0.1",
-			Hostname: "test-router",
-		},
-		SNMP: pipeline.SNMPData{
-			Version:     "v2c",
-			OID:         "1.3.6.1.6.3.1.1.5.3",
-			OIDName:     "linkDown",
-			Value:       2,
-			ValueType:   "Integer",
-			ValueString: "down",
-			RequestType: "trap",
-		},
-		Severity:      pipeline.SeverityHigh,
-		SeverityLabel: "high",
-		Category:      "network",
+		ID:             "test-evt-001",
+		Timestamp:      time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
+		EventType:      pipeline.EventTypeTrap,
+		Version:        "v2c",
+		DeviceIP:       "10.0.0.1",
+		DeviceHostname: "test-router",
+		OID:            "1.3.6.1.6.3.1.1.5.3",
+		OIDName:        "linkDown",
+		Value:          2,
+		ValueType:      "Integer",
+		ValueStr:       "down",
+		Severity:       pipeline.SeverityHigh,
+		SeverityLabel:  "high",
+		Category:       "network",
 	}
 }
 

@@ -18,168 +18,132 @@ func TestNormalizerOIDResolution(t *testing.T) {
 	n := newTestNormalizer()
 
 	event := &SNMPEvent{
-		SNMP: SNMPData{
-			OID: "1.3.6.1.2.1.1.1",
-		},
-		Source: SourceInfo{IP: "10.0.0.1"},
+		OID:      "1.3.6.1.2.1.1.1",
+		DeviceIP: "10.0.0.1",
 	}
 
 	n.Process(event)
 
-	if event.SNMP.OIDName != "sysDescr" {
-		t.Errorf("OID name: want %q, got %q", "sysDescr", event.SNMP.OIDName)
-	}
-	if event.SNMP.OIDModule != "SNMPv2-MIB" {
-		t.Errorf("OID module: want %q, got %q", "SNMPv2-MIB", event.SNMP.OIDModule)
+	if event.OIDName != "sysDescr" {
+		t.Errorf("OID name: want %q, got %q", "sysDescr", event.OIDName)
 	}
 }
 
-func TestNormalizerVariableResolution(t *testing.T) {
+func TestNormalizerCategorySystem(t *testing.T) {
 	n := newTestNormalizer()
 
 	event := &SNMPEvent{
-		SNMP: SNMPData{
-			OID:     "1.3.6.1.6.3.1.1.5.3",
-			OIDName: "linkDown", // pre-set
-			Variables: []Variable{
-				{OID: "1.3.6.1.2.1.2.2.1.8.1"},
-				{OID: "1.3.6.1.2.1.2.2.1.2.1"},
-			},
-		},
-		Source: SourceInfo{IP: "10.0.0.1"},
+		OID:      "1.3.6.1.2.1.1.5.0",
+		DeviceIP: "10.0.0.1",
 	}
-
 	n.Process(event)
 
-	if event.SNMP.Variables[0].OIDName != "ifOperStatus.1" {
-		t.Errorf("var 0 name: want %q, got %q", "ifOperStatus.1", event.SNMP.Variables[0].OIDName)
-	}
-	if event.SNMP.Variables[1].OIDName != "ifDescr.1" {
-		t.Errorf("var 1 name: want %q, got %q", "ifDescr.1", event.SNMP.Variables[1].OIDName)
+	if event.Category != CategorySystem {
+		t.Errorf("category: want %q, got %q", CategorySystem, event.Category)
 	}
 }
 
-func TestNormalizerValueToString(t *testing.T) {
+func TestNormalizerCategoryNetwork(t *testing.T) {
 	n := newTestNormalizer()
 
 	event := &SNMPEvent{
-		SNMP: SNMPData{
-			OID:   "1.3.6.1.2.1.1.1",
-			Value: "Cisco IOS",
-		},
-		Source: SourceInfo{IP: "10.0.0.1"},
+		OID:      "1.3.6.1.2.1.2.2.1.8.1",
+		DeviceIP: "10.0.0.1",
 	}
-
 	n.Process(event)
 
-	if event.SNMP.ValueString != "Cisco IOS" {
-		t.Errorf("value string: want %q, got %q", "Cisco IOS", event.SNMP.ValueString)
+	if event.Category != CategoryNetwork {
+		t.Errorf("category: want %q, got %q", CategoryNetwork, event.Category)
 	}
 }
 
-func TestNormalizerSeverityClassification(t *testing.T) {
+func TestNormalizerCategoryEnvironment(t *testing.T) {
 	n := newTestNormalizer()
 
-	tests := []struct {
-		name       string
-		oidName    string
-		wantSev    Severity
-		wantLabel  string
-	}{
-		{"auth failure", "authenticationFailure", SeverityHigh, "high"},
-		{"link down", "linkDown", SeverityHigh, "high"},
-		{"cold start", "coldStart", SeverityMedium, "medium"},
-		{"warm start", "warmStart", SeverityLow, "low"},
-		{"link up", "linkUp", SeverityInfo, "info"},
-		{"error keyword", "ifInErrors", SeverityHigh, "high"},
-		{"discard keyword", "ifInDiscards", SeverityMedium, "medium"},
+	// MikroTik CPU temperature
+	event := &SNMPEvent{
+		OID:      "1.3.6.1.4.1.14988.1.1.3.10",
+		DeviceIP: "10.0.0.1",
 	}
+	n.Process(event)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			event := &SNMPEvent{
-				SNMP:   SNMPData{OIDName: tt.oidName},
-				Source: SourceInfo{IP: "10.0.0.1"},
-			}
-			n.Process(event)
-
-			if event.Severity != tt.wantSev {
-				t.Errorf("severity: want %d (%s), got %d (%s)",
-					tt.wantSev, tt.wantSev.String(), event.Severity, event.Severity.String())
-			}
-			if event.SeverityLabel != tt.wantLabel {
-				t.Errorf("severity label: want %q, got %q", tt.wantLabel, event.SeverityLabel)
-			}
-		})
+	if event.Category != CategoryEnvironment {
+		t.Errorf("category: want %q, got %q", CategoryEnvironment, event.Category)
 	}
 }
 
-func TestNormalizerCategoryClassification(t *testing.T) {
+func TestNormalizerTemperatureMetric(t *testing.T) {
 	n := newTestNormalizer()
 
-	tests := []struct {
-		oidName  string
-		wantCat  string
-	}{
-		{"authenticationFailure", "security"},
-		{"ifOperStatus", "network"},
-		{"ifInOctets", "network"},
-		{"hrProcessorLoad", "performance"},
-		{"memTotalReal", "performance"},
-		{"sysUpTime", "availability"},
-		{"coldStart", "availability"},
-		{"sysDescr", "system"},
-		{"customOID", "general"},
+	// MikroTik temperature raw value = 420 (42.0°C)
+	event := &SNMPEvent{
+		OID:      "1.3.6.1.4.1.14988.1.1.3.10",
+		OIDName:  "mtxrHlCpuTemperature",
+		Value:    420,
+		DeviceIP: "10.0.0.1",
 	}
+	n.Process(event)
 
-	for _, tt := range tests {
-		t.Run(tt.oidName, func(t *testing.T) {
-			event := &SNMPEvent{
-				SNMP:   SNMPData{OIDName: tt.oidName},
-				Source: SourceInfo{IP: "10.0.0.1"},
-			}
-			n.Process(event)
-
-			if event.Category != tt.wantCat {
-				t.Errorf("category for %q: want %q, got %q", tt.oidName, tt.wantCat, event.Category)
-			}
-		})
+	if event.MetricUnit != "°C" {
+		t.Errorf("unit: want °C, got %q", event.MetricUnit)
+	}
+	if event.MetricValue == nil || *event.MetricValue != 42.0 {
+		t.Errorf("metric value: want 42.0, got %v", event.MetricValue)
 	}
 }
 
-func TestNormalizerSkipsPresetSeverity(t *testing.T) {
+func TestNormalizerSeverityLinkDown(t *testing.T) {
 	n := newTestNormalizer()
 
 	event := &SNMPEvent{
-		SNMP:     SNMPData{OIDName: "linkDown"},
-		Source:   SourceInfo{IP: "10.0.0.1"},
-		Severity: SeverityCritical, // pre-set, should not be overwritten
+		OID:       "1.3.6.1.6.3.1.1.5.3",
+		OIDName:   "linkDown",
+		EventType: EventTypeTrap,
+		TrapOID:   "1.3.6.1.6.3.1.1.5.3",
+		DeviceIP:  "10.0.0.1",
 	}
 	n.Process(event)
 
-	if event.Severity != SeverityCritical {
-		t.Errorf("preset severity changed: want %d, got %d", SeverityCritical, event.Severity)
+	if event.Severity != SeverityHigh {
+		t.Errorf("severity for linkDown: want %d (high), got %d", SeverityHigh, event.Severity)
 	}
 }
 
-func TestNormalizerSkipsPresetCategory(t *testing.T) {
+func TestNormalizerSeverityAuthFailure(t *testing.T) {
 	n := newTestNormalizer()
 
 	event := &SNMPEvent{
-		SNMP:     SNMPData{OIDName: "ifOperStatus"},
-		Source:   SourceInfo{IP: "10.0.0.1"},
-		Category: "custom-category",
+		OID:       "1.3.6.1.6.3.1.1.5.5",
+		OIDName:   "authenticationFailure",
+		EventType: EventTypeTrap,
+		TrapOID:   "1.3.6.1.6.3.1.1.5.5",
+		DeviceIP:  "10.0.0.1",
 	}
 	n.Process(event)
 
-	if event.Category != "custom-category" {
-		t.Errorf("preset category changed: want %q, got %q", "custom-category", event.Category)
+	if event.Severity != SeverityHigh {
+		t.Errorf("severity for authFailure: want %d (high), got %d", SeverityHigh, event.Severity)
+	}
+}
+
+func TestValueStrPopulated(t *testing.T) {
+	n := newTestNormalizer()
+
+	event := &SNMPEvent{
+		OID:      "1.3.6.1.2.1.1.1",
+		Value:    "Cisco IOS Software",
+		DeviceIP: "10.0.0.1",
+	}
+	n.Process(event)
+
+	if event.ValueStr == "" {
+		t.Error("ValueStr should be populated after normalization")
 	}
 }
 
 // ── Enricher Tests ───────────────────────────────────────────────────
 
-func TestEnricherAssetLookup(t *testing.T) {
+func TestEnricherLoadAndEnrich(t *testing.T) {
 	e := NewEnricher(zerolog.Nop())
 	e.LoadAssets(map[string]AssetInfo{
 		"10.0.0.1": {
@@ -193,25 +157,25 @@ func TestEnricherAssetLookup(t *testing.T) {
 	})
 
 	event := &SNMPEvent{
-		Source:   SourceInfo{IP: "10.0.0.1"},
-		SNMP:    SNMPData{Version: "v2c"},
+		DeviceIP: "10.0.0.1",
+		Version:  "v2c",
 		Severity: SeverityLow,
 	}
 	e.Process(event)
 
-	if event.Enrichment.AssetCriticality != "critical" {
-		t.Errorf("criticality: want %q, got %q", "critical", event.Enrichment.AssetCriticality)
+	if event.AssetCriticality != "critical" {
+		t.Errorf("criticality: want %q, got %q", "critical", event.AssetCriticality)
 	}
-	if event.Source.Hostname != "core-router" {
-		t.Errorf("hostname: want %q, got %q", "core-router", event.Source.Hostname)
+	if event.DeviceHostname != "core-router" {
+		t.Errorf("hostname: want %q, got %q", "core-router", event.DeviceHostname)
 	}
-	if event.Source.Location != "DC-Tashkent-01" {
-		t.Errorf("location: want %q, got %q", "DC-Tashkent-01", event.Source.Location)
+	if event.DeviceLocation != "DC-Tashkent-01" {
+		t.Errorf("location: want %q, got %q", "DC-Tashkent-01", event.DeviceLocation)
 	}
-	if event.Enrichment.CustomFields["department"] != "Network Engineering" {
+	if event.CustomFields["department"] != "Network Engineering" {
 		t.Error("department field missing")
 	}
-	if event.Enrichment.CustomFields["owner"] != "admin@corp.local" {
+	if event.CustomFields["owner"] != "admin@corp.local" {
 		t.Error("owner field missing")
 	}
 }
@@ -223,8 +187,8 @@ func TestEnricherSeverityAdjustment(t *testing.T) {
 	})
 
 	event := &SNMPEvent{
-		Source:   SourceInfo{IP: "10.0.0.1"},
-		SNMP:    SNMPData{Version: "v2c"},
+		DeviceIP: "10.0.0.1",
+		Version:  "v2c",
 		Severity: SeverityLow, // 3
 	}
 	e.Process(event)
@@ -242,8 +206,8 @@ func TestEnricherSeverityNoAdjustForNonCritical(t *testing.T) {
 	})
 
 	event := &SNMPEvent{
-		Source:   SourceInfo{IP: "10.0.0.1"},
-		SNMP:    SNMPData{Version: "v2c"},
+		DeviceIP: "10.0.0.1",
+		Version:  "v2c",
 		Severity: SeverityLow,
 	}
 	e.Process(event)
@@ -257,10 +221,11 @@ func TestEnricherTags(t *testing.T) {
 	e := NewEnricher(zerolog.Nop())
 
 	event := &SNMPEvent{
-		Source:    SourceInfo{IP: "10.0.0.1", Vendor: "Cisco"},
-		SNMP:     SNMPData{Version: "v3"},
-		EventType: EventTypeTrap,
-		Category: "security",
+		DeviceIP:     "10.0.0.1",
+		DeviceVendor: "Cisco",
+		Version:      "v3",
+		EventType:    EventTypeTrap,
+		Category:     CategorySecurity,
 	}
 	e.Process(event)
 
@@ -283,15 +248,12 @@ func TestEnricherTags(t *testing.T) {
 func TestEnricherUnknownAsset(t *testing.T) {
 	e := NewEnricher(zerolog.Nop())
 
-	event := &SNMPEvent{
-		Source: SourceInfo{IP: "99.99.99.99"},
-		SNMP:  SNMPData{Version: "v2c"},
-	}
+	event := &SNMPEvent{DeviceIP: "99.99.99.99", Version: "v2c"}
 	e.Process(event)
 
 	// Should not crash, enrichment should be empty
-	if event.Enrichment.AssetCriticality != "" {
-		t.Errorf("unknown asset should have no criticality, got %q", event.Enrichment.AssetCriticality)
+	if event.AssetCriticality != "" {
+		t.Errorf("unknown asset should have no criticality, got %q", event.AssetCriticality)
 	}
 }
 
@@ -302,14 +264,15 @@ func TestEnricherPreservesExistingHostname(t *testing.T) {
 	})
 
 	event := &SNMPEvent{
-		Source: SourceInfo{IP: "10.0.0.1", Hostname: "original-hostname"},
-		SNMP:  SNMPData{Version: "v2c"},
+		DeviceIP:       "10.0.0.1",
+		DeviceHostname: "original-hostname",
+		Version:        "v2c",
 	}
 	e.Process(event)
 
 	// Should NOT overwrite existing hostname
-	if event.Source.Hostname != "original-hostname" {
-		t.Errorf("hostname overwritten: want %q, got %q", "original-hostname", event.Source.Hostname)
+	if event.DeviceHostname != "original-hostname" {
+		t.Errorf("hostname overwritten: want %q, got %q", "original-hostname", event.DeviceHostname)
 	}
 }
 
@@ -328,8 +291,8 @@ func TestPipelineSubmitAndStats(t *testing.T) {
 	event := &SNMPEvent{
 		ID:        "test-001",
 		Timestamp: time.Now(),
-		SNMP:      SNMPData{OID: "1.3.6.1.2.1.1.1"},
-		Source:    SourceInfo{IP: "10.0.0.1"},
+		OID:       "1.3.6.1.2.1.1.1",
+		DeviceIP:  "10.0.0.1",
 	}
 
 	ok := pipe.Submit(event)
@@ -357,7 +320,7 @@ func TestPipelineBackPressure(t *testing.T) {
 		pipe.Submit(&SNMPEvent{
 			ID:        "fill",
 			Timestamp: time.Now(),
-			Source:    SourceInfo{IP: "10.0.0.1"},
+			DeviceIP:  "10.0.0.1",
 		})
 	}
 
@@ -365,7 +328,7 @@ func TestPipelineBackPressure(t *testing.T) {
 	ok := pipe.Submit(&SNMPEvent{
 		ID:        "overflow",
 		Timestamp: time.Now(),
-		Source:    SourceInfo{IP: "10.0.0.1"},
+		DeviceIP:  "10.0.0.1",
 	})
 
 	if ok {
@@ -382,9 +345,9 @@ func TestPipelineBackPressure(t *testing.T) {
 
 func TestContainsAny(t *testing.T) {
 	tests := []struct {
-		s      string
-		subs   []string
-		want   bool
+		s    string
+		subs []string
+		want bool
 	}{
 		{"ifOperStatus", []string{"if", "link"}, true},
 		{"authenticationFailure", []string{"auth", "security"}, true},

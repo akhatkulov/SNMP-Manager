@@ -298,7 +298,7 @@ func (b *BufferedOutput) tryFlush() {
 		probeEvent := &pipeline.SNMPEvent{
 			ID:        "health-probe",
 			Timestamp: time.Now(),
-			Source:    pipeline.SourceInfo{IP: "0.0.0.0"},
+			DeviceIP:  "0.0.0.0",
 			EventType: pipeline.EventTypeDiscovery,
 		}
 		err := b.inner.Write(b.ctx, probeEvent)
