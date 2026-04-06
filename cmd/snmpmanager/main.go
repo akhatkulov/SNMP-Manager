@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/me262/snmp-manager/internal/api"
+	"github.com/me262/snmp-manager/internal/auth"
 	"github.com/me262/snmp-manager/internal/config"
 	"github.com/me262/snmp-manager/internal/device"
+	"github.com/me262/snmp-manager/internal/discovery"
 	"github.com/me262/snmp-manager/internal/mib"
 	"github.com/me262/snmp-manager/internal/output"
 	"github.com/me262/snmp-manager/internal/pipeline"
@@ -156,6 +158,23 @@ func main() {
 			buffered := output.NewBufferedOutput(log, out, bufCfg)
 			outputs = append(outputs, buffered)
 			log.Info().Str("address", outCfg.Address).Msg("tcp output configured (buffered)")
+
+		case "device_file":
+			// Per-device fayl output — har qurilma uchun alohida papka va fayl.
+			// logs/devices/{device_ip}/events.jsonl
+			dir := outCfg.Path
+			if dir == "" {
+				dir = "./logs/devices"
+			}
+			out := output.NewDeviceFileOutput(log, output.DeviceFileConfig{
+				BaseDir:       dir,
+				MaxSizeMB:     outCfg.MaxSizeMB,
+				MaxBackups:    outCfg.MaxBackups,
+			})
+			outputs = append(outputs, out)
+			log.Info().
+				Str("dir", dir).
+				Msg("device_file output configured — har qurilma uchun alohida log")
 		}
 	}
 
@@ -191,9 +210,38 @@ func main() {
 		log.Info().Int("count", templateStore.Count()).Msg("template store initialized")
 	}
 
-	// 8. API Server
+	// 8. Auth (RBAC) — User Store + JWT
+	usersFile := filepath.Join(filepath.Dir(*configFile), "users.json")
+	userStore, err := auth.NewUserStore(usersFile)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to load user store, RBAC disabled")
+	} else {
+		log.Info().Int("users", userStore.Count()).Str("file", usersFile).Msg("user store initialized")
+	}
+
+	jwtSecret := cfg.API.Auth.JWTSecret
+	if jwtSecret == "" {
+		jwtSecret = "change-me-in-production"
+	}
+	jwtConfig := auth.JWTConfig{
+		Secret:     jwtSecret,
+		SessionTTL: 24 * time.Hour,
+		RefreshTTL: 7 * 24 * time.Hour,
+	}
+	authMiddleware := auth.NewMiddleware(jwtSecret, cfg.API.Auth.Keys)
+
+	// 9. Discovery & Topology
+	scanner := discovery.NewScanner(log)
+	topoBuilder := discovery.NewTopologyBuilder(log)
+
+	// 10. API Server
 	apiServer := api.NewServer(log, cfg.API, cfg, *configFile, registry, resolver, poll, trapListener, pipe, cfg.Outputs)
 	apiServer.SetOutputInstances(outputs)
+	apiServer.SetUserStore(userStore)
+	apiServer.SetJWTConfig(jwtConfig)
+	apiServer.SetAuthMiddleware(authMiddleware)
+	apiServer.SetScanner(scanner)
+	apiServer.SetTopologyBuilder(topoBuilder)
 	if templateStore != nil {
 		apiServer.SetTemplateStore(templateStore)
 		poll.SetTemplateStore(templateStore)

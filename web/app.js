@@ -6,7 +6,12 @@
 
     const API_BASE = '/api/v1';
     const REFRESH_INTERVAL = 10_000;
-    let apiKey = localStorage.getItem('snmp_api_key') || '';
+    let apiKey = localStorage.getItem('snmp_access_token') || localStorage.getItem('snmp_api_key') || '';
+    let currentUser = null;
+    try {
+        const u = localStorage.getItem('snmp_user');
+        if (u) currentUser = JSON.parse(u);
+    } catch(e) {}
     let refreshTimer = null;
     let progressTimer = null;
     let countdownTimer = null;
@@ -21,7 +26,12 @@
 
     // ── API ───────────────────────────────────────────────────────────
     async function apiCall(method, endpoint, body = null) {
-        const opts = { method, headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' } };
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiKey) {
+            if (apiKey.includes('.')) headers['Authorization'] = `Bearer ${apiKey}`;
+            else headers['X-API-Key'] = apiKey;
+        }
+        const opts = { method, headers };
         if (body) opts.body = JSON.stringify(body);
         const res = await fetch(`${API_BASE}${endpoint}`, opts);
         const data = await res.json();
@@ -46,19 +56,28 @@
 
     // ── Navigation ────────────────────────────────────────────────────
     function navigateTo(page) {
+        if (page === 'users' && (!currentUser || currentUser.role !== 'admin')) {
+            showToast('Access denied', 'error');
+            return;
+        }
+
         $$('.page').forEach(p => p.classList.remove('active'));
         $$('.nav-item').forEach(n => n.classList.remove('active'));
         $(`#page-${page}`)?.classList.add('active');
         $(`#nav-${page}`)?.classList.add('active');
         $('#sidebar').classList.remove('open');
         window.location.hash = page;
+        window.location.hash = page;
         switch (page) {
             case 'dashboard': loadDashboard(); break;
             case 'devices': loadDevices(); break;
             case 'traps': loadTraps(); break;
+            case 'monitoring': if (window.loadMonitoringPage) window.loadMonitoringPage(); break;
             case 'events': loadEvents(); break;
             case 'mibs': loadMIBs(); break;
             case 'templates': loadTemplates(); break;
+            case 'discovery': if (window.loadDiscoveryPage) window.loadDiscoveryPage(); break;
+            case 'users': if (window.loadUsersPage) window.loadUsersPage(); break;
             case 'settings': loadSettings(); break;
         }
     }
@@ -1537,7 +1556,18 @@
     function refreshCurrentPage() {
         const active = document.querySelector('.nav-item.active');
         const page = active?.dataset.page || 'dashboard';
-        switch (page) { case 'dashboard':loadDashboard();break; case 'devices':loadDevices();break; case 'traps':loadTraps();break; case 'events':loadEvents();break; case 'mibs':loadMIBs();break; case 'templates':loadTemplates();break; case 'settings':loadSettings();break; }
+        switch (page) { 
+            case 'dashboard':loadDashboard();break; 
+            case 'devices':loadDevices();break; 
+            case 'traps':loadTraps();break; 
+            case 'monitoring':if(window.loadMonitoringPage)window.loadMonitoringPage();break; 
+            case 'events':loadEvents();break; 
+            case 'mibs':loadMIBs();break; 
+            case 'templates':loadTemplates();break; 
+            case 'discovery':if(window.loadDiscoveryPage)window.loadDiscoveryPage();break; 
+            case 'users':if(window.loadUsersPage)window.loadUsersPage();break; 
+            case 'settings':loadSettings();break; 
+        }
         countdownValue = REFRESH_INTERVAL / 1000;
     }
 
@@ -1550,15 +1580,25 @@
             const res = await fetch(`${API_BASE}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username,password}) });
             const data = await res.json();
             if (!res.ok) { errorEl.textContent = data.error||'Login failed'; return; }
-            if (data.mode==='api_key') { errorEl.textContent='Enter API key directly'; return; }
-            apiKey=data.token; isLoggedIn=true; localStorage.setItem('snmp_api_key', apiKey);
+            if (data.access_token) {
+                apiKey=data.access_token; 
+                currentUser=data.user;
+                isLoggedIn=true; 
+                localStorage.setItem('snmp_access_token', apiKey);
+                localStorage.setItem('snmp_user', JSON.stringify(currentUser));
+            } else {
+                apiKey=data.token; isLoggedIn=true; localStorage.setItem('snmp_api_key', apiKey);
+            }
             $('#loginOverlay').classList.remove('active');
             showToast('Login successful','success');
             startApp();
         } catch (err) { errorEl.textContent='Connection error'; }
     }
     function doLogout() {
-        apiKey=''; isLoggedIn=false; localStorage.removeItem('snmp_api_key');
+        apiKey=''; currentUser=null; isLoggedIn=false; 
+        localStorage.removeItem('snmp_api_key');
+        localStorage.removeItem('snmp_access_token');
+        localStorage.removeItem('snmp_user');
         if (refreshTimer) clearInterval(refreshTimer);
         if (countdownTimer) clearInterval(countdownTimer);
         if (progressTimer) clearInterval(progressTimer);
@@ -1573,6 +1613,10 @@
     window._pollDevice = pollDevice;
 
     function startApp() {
+        if (currentUser && currentUser.role === 'admin') {
+            const usersNav = $('#nav-users');
+            if (usersNav) usersNav.style.display = 'flex';
+        }
         loadDashboard();
         refreshTimer = setInterval(refreshCurrentPage, REFRESH_INTERVAL);
         progressTimer = setInterval(loadPollProgress, 3000);
@@ -1586,7 +1630,14 @@
         $('#loginPassword')?.addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
         $('#logoutBtn')?.addEventListener('click', doLogout);
 
-        if (!isLoggedIn) $('#loginOverlay').classList.add('active');
+        if (!isLoggedIn) {
+            $('#loginOverlay').classList.add('active');
+        } else {
+            if (currentUser && currentUser.role === 'admin') {
+                const usersNav = $('#nav-users');
+                if (usersNav) usersNav.style.display = 'flex';
+            }
+        }
 
         // Navigation
         $$('.nav-item').forEach(item => item.addEventListener('click', e => { e.preventDefault(); navigateTo(item.dataset.page); }));

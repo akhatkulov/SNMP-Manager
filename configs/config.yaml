@@ -128,6 +128,15 @@ outputs:
     max_backups: 5
     compress: true
 
+  # Per-device fayl output — har qurilma uchun alohida log papka va fayl
+  # logs/devices/{device_ip}/events.jsonl
+  # Bu orqali qurilma bo'yicha filterlash, monitoring va audit osonlashadi
+  - type: "device_file"
+    enabled: true
+    path: "./logs/devices"      # Har qurilma alohida papkada saqlanadi
+    max_size_mb: 50             # Har bir fayl max 50 MB bo'lganda rotatsiya
+    max_backups: 7              # Har qurilma uchun 7 ta eski fayl saqlanadi
+
   # Syslog → SIEM (uncomment for production)
   # - type: "syslog"
   #   enabled: true

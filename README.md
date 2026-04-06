@@ -6,12 +6,12 @@ A high-performance SNMP Manager written in Go, designed for Security Information
 
 - **SNMP Polling** — Scheduled polling with configurable intervals per device (GET/WALK/BULK)
 - **Trap Receiver** — UDP trap listener with SNMPv1/v2c/v3 support and deduplication
+- **Network Discovery** — Automated Subnet sweeping with SNMP probing & template auto-matching
+- **Topology Mapper** — LLDP & CDP graph generation for L2/L3 visual network maps
+- **Enterprise Security** — Built-in RBAC (Roles: Admin, Operator, Viewer) via JSON-based JWT auth
 - **Event Pipeline** — Multi-stage processing: Normalize → Enrich → Filter → Format → Output
 - **SIEM Formats** — CEF (ArcSight), JSON (ELK/Wazuh), Syslog RFC 5424, LEEF (QRadar)
-- **SNMPv3 Security** — Full USM support with SHA-256/512 + AES-256 authentication & encryption
-- **REST API** — Device management, manual polling, MIB resolution, and system stats
-- **Built-in MIB** — 60+ pre-loaded OIDs for system, interfaces, CPU, memory, and traps
-- **Auto-Detection** — Vendor and device type detection from sysDescr
+- **REST API & Swagger docs** — Full OpenAPI 3.1 specs for device/discovery management
 - **High Performance** — Go goroutines + channels for concurrent polling of 10,000+ devices
 - **Single Binary** — No external dependencies, runs on Linux/Windows/ARM
 
@@ -83,6 +83,28 @@ outputs:
 | POST | `/api/v1/devices/{name}/poll` | Manual poll |
 | GET | `/api/v1/mibs/groups` | List MIB groups |
 | GET | `/api/v1/mibs/resolve/{oid}` | Resolve OID |
+
+## 🧪 Testing
+
+The repository uses Go's standard `testing` framework for robust unit tests and integration verifications spanning multiple components (auth, pipeline, discovery, metrics, outputs).
+
+```bash
+# Run all tests sequentially
+go test ./... -v -count=1
+
+# Run tests with race condition detection
+go test -race ./...
+
+# Generate and view test coverage
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
+
+### Module Breakdown
+- `internal/auth`: Validates RBAC permissions, JWT issuance, PBKDF2 hashing, and store manipulations.
+- `internal/api`: Tests REST endpoint logic, middleware guards, and handler integration.
+- `internal/discovery`: Validates CIDR subnet expansion, IP logic, auto-vendor detection engine, and discovery flows.
+- `internal/poller`, `internal/pipeline`, `internal/trap`: Verifies raw byte translations, event deduplications, concurrency safeguards, and metrics output formatting (CEF/JSON/Syslog).
 
 ## 🐳 Docker
 

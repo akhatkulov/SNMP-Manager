@@ -195,8 +195,10 @@ type APIConfig struct {
 
 // AuthConfig holds API authentication settings.
 type AuthConfig struct {
-	Type string   `yaml:"type"`
-	Keys []string `yaml:"keys"`
+	Type      string   `yaml:"type"`       // "api_key", "jwt", "both"
+	Keys      []string `yaml:"keys"`
+	JWTSecret string   `yaml:"jwt_secret"` // HMAC-SHA256 secret for JWT
+	UsersFile string   `yaml:"users_file"` // Path to users.json
 }
 
 // AdminPanelConfig holds admin panel login credentials.
@@ -364,7 +366,7 @@ func validate(cfg *Config) error {
 		if !out.Enabled {
 			continue
 		}
-		validTypes := map[string]bool{"syslog": true, "kafka": true, "http": true, "file": true, "stdout": true, "tcp": true, "elasticsearch": true}
+		validTypes := map[string]bool{"syslog": true, "kafka": true, "http": true, "file": true, "stdout": true, "tcp": true, "elasticsearch": true, "device_file": true}
 		if !validTypes[out.Type] {
 			return fmt.Errorf("output #%d: invalid type %q", i+1, out.Type)
 		}

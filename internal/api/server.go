@@ -7,16 +7,20 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 
+	"github.com/me262/snmp-manager/internal/auth"
 	"github.com/me262/snmp-manager/internal/config"
 	"github.com/me262/snmp-manager/internal/device"
+	"github.com/me262/snmp-manager/internal/discovery"
 	"github.com/me262/snmp-manager/internal/mib"
 	"github.com/me262/snmp-manager/internal/pipeline"
 	"github.com/me262/snmp-manager/internal/poller"
@@ -24,6 +28,7 @@ import (
 	snmptemplate "github.com/me262/snmp-manager/internal/template"
 	"github.com/me262/snmp-manager/internal/trap"
 )
+
 
 // Server provides a REST API for managing and monitoring the SNMP Manager.
 type Server struct {
@@ -43,6 +48,17 @@ type Server struct {
 	statsHistory    *store.StatsHistory
 	outputInstances []pipeline.Output
 	templateStore   *snmptemplate.Store
+
+	// Auth (RBAC)
+	userStore      *auth.UserStore
+	jwtConfig      auth.JWTConfig
+	authMiddleware *auth.Middleware
+
+	// Discovery & Topology
+	scanner        *discovery.Scanner
+	topoBuilder    *discovery.TopologyBuilder
+	topoMu         sync.RWMutex
+	cachedTopology *discovery.TopologyMap
 }
 
 // NewServer creates a new API server.
@@ -89,11 +105,46 @@ func (s *Server) SetOutputInstances(outputs []pipeline.Output) {
 	s.outputInstances = outputs
 }
 
+// SetUserStore sets the user store for RBAC.
+func (s *Server) SetUserStore(us *auth.UserStore) {
+	s.userStore = us
+}
+
+// SetJWTConfig sets the JWT configuration.
+func (s *Server) SetJWTConfig(cfg auth.JWTConfig) {
+	s.jwtConfig = cfg
+}
+
+// SetAuthMiddleware sets the auth middleware.
+func (s *Server) SetAuthMiddleware(m *auth.Middleware) {
+	s.authMiddleware = m
+}
+
+// SetScanner sets the discovery scanner.
+func (s *Server) SetScanner(sc *discovery.Scanner) {
+	s.scanner = sc
+}
+
+// SetTopologyBuilder sets the topology builder.
+func (s *Server) SetTopologyBuilder(tb *discovery.TopologyBuilder) {
+	s.topoBuilder = tb
+}
+
 // Run starts the API server. Blocks until context is cancelled.
 func (s *Server) Run(ctx context.Context) error {
 	if !s.cfg.Enabled {
 		s.log.Info().Msg("API server is disabled")
 		return nil
+	}
+
+	// Initialize default JWT config if not set
+	if s.jwtConfig.Secret == "" {
+		s.jwtConfig = auth.DefaultJWTConfig()
+	}
+
+	// Initialize auth middleware if not set
+	if s.authMiddleware == nil {
+		s.authMiddleware = auth.NewMiddleware(s.jwtConfig.Secret, s.cfg.Auth.Keys)
 	}
 
 	mux := http.NewServeMux()
@@ -126,7 +177,13 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/events/timeseries", s.withAuth(s.handleEventTimeSeries))
 	mux.HandleFunc("GET /api/v1/buffer/stats", s.withAuth(s.handleBufferStats))
 
-	// Templates
+	// Monitoring — per-device analytics va real-time chartlar
+	mux.HandleFunc("GET /api/v1/monitoring/summary", s.withAuth(s.handleMonitoringSummary))
+	mux.HandleFunc("GET /api/v1/monitoring/alerts", s.withAuth(s.handleMonitoringAlerts))
+	mux.HandleFunc("GET /api/v1/monitoring/device/{ip}", s.withAuth(s.handleMonitoringDevice))
+	mux.HandleFunc("GET /api/v1/monitoring/device/{ip}/metrics", s.withAuth(s.handleMonitoringMetrics))
+	mux.HandleFunc("GET /api/v1/monitoring/device/{ip}/chart", s.withAuth(s.handleMonitoringChart))
+
 	mux.HandleFunc("GET /api/v1/templates", s.withAuth(s.handleListTemplates))
 	mux.HandleFunc("GET /api/v1/templates/{id}", s.withAuth(s.handleGetTemplate))
 	mux.HandleFunc("POST /api/v1/templates", s.withAuth(s.handleAddTemplate))
@@ -135,9 +192,33 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/v1/templates/import", s.withAuth(s.handleImportTemplates))
 	mux.HandleFunc("GET /api/v1/templates/export", s.withAuth(s.handleExportTemplates))
 
-	// Admin panel auth (no API key required)
-	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
+	// Auth endpoints (no auth required for login)
+	mux.HandleFunc("POST /api/v1/auth/login", s.handleAuthLogin)
+	mux.HandleFunc("POST /api/v1/auth/refresh", s.handleAuthRefresh)
+	mux.HandleFunc("GET /api/v1/auth/me", s.withAuth(s.handleAuthMe))
+	mux.HandleFunc("PUT /api/v1/auth/password", s.withAuth(s.handleAuthPasswordChange))
 
+	// User management (admin only)
+	adminOnly := s.authMiddleware.RequireRole(auth.RoleAdmin)
+	mux.HandleFunc("GET /api/v1/users", s.withAuth(adminOnly(s.handleListUsers)))
+	mux.HandleFunc("POST /api/v1/users", s.withAuth(adminOnly(s.handleCreateUser)))
+	mux.HandleFunc("PUT /api/v1/users/{id}", s.withAuth(adminOnly(s.handleUpdateUser)))
+	mux.HandleFunc("DELETE /api/v1/users/{id}", s.withAuth(adminOnly(s.handleDeleteUser)))
+
+	// Discovery — Network auto-discovery & topology
+	mux.HandleFunc("POST /api/v1/discovery/scan", s.withAuth(s.handleDiscoveryScan))
+	mux.HandleFunc("GET /api/v1/discovery/status", s.withAuth(s.handleDiscoveryStatus))
+	mux.HandleFunc("GET /api/v1/discovery/results", s.withAuth(s.handleDiscoveryResults))
+	mux.HandleFunc("POST /api/v1/discovery/cancel", s.withAuth(s.handleDiscoveryCancel))
+	mux.HandleFunc("POST /api/v1/discovery/register", s.withAuth(s.handleDiscoveryRegister))
+	mux.HandleFunc("GET /api/v1/topology", s.withAuth(s.handleTopology))
+	mux.HandleFunc("POST /api/v1/topology/refresh", s.withAuth(s.handleTopologyRefresh))
+
+	// API Documentation
+	mux.HandleFunc("GET /api/docs/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join(filepath.Dir(s.configPath), "../docs/openapi.yaml"))
+	})
+	
 	// Serve admin panel static files
 	webDir := "./web"
 	if _, err := os.Stat(webDir); err == nil {
@@ -605,6 +686,10 @@ func (s *Server) handleMIBCount(w http.ResponseWriter, r *http.Request) {
 // ── Middleware ─────────────────────────────────────────────────────────
 
 func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
+	if s.authMiddleware != nil {
+		return s.authMiddleware.Authenticate(next)
+	}
+	// Fallback: legacy API key auth
 	return func(w http.ResponseWriter, r *http.Request) {
 		if len(s.cfg.Auth.Keys) == 0 {
 			next(w, r)

@@ -243,3 +243,112 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// ── DeviceFileOutput Tests ──────────────────────────────────────────
+
+func TestDeviceFileOutputCreatesPerDeviceDir(t *testing.T) {
+	baseDir := t.TempDir()
+	out := NewDeviceFileOutput(zerolog.Nop(), DeviceFileConfig{
+		BaseDir:    baseDir,
+		MaxSizeMB:  10,
+		MaxBackups: 2,
+	})
+	defer out.Close()
+
+	ctx := context.Background()
+	ips := []string{"10.10.11.53", "192.168.1.1", "10.0.0.5"}
+
+	for _, ip := range ips {
+		evt := sampleEvent()
+		evt.DeviceIP = ip
+		if err := out.Write(ctx, evt); err != nil {
+			t.Fatalf("write for %s: %v", ip, err)
+		}
+	}
+
+	// flush kuting
+	time.Sleep(300 * time.Millisecond)
+	out.Close()
+
+	// Har bir IP uchun alohida papka va fayl bo'lishi kerak
+	for _, ip := range ips {
+		logFile := filepath.Join(baseDir, ip, "events.jsonl")
+		if _, err := os.Stat(logFile); os.IsNotExist(err) {
+			t.Errorf("device log fayli topilmadi: %s", logFile)
+		}
+	}
+}
+
+func TestDeviceFileOutputIsolation(t *testing.T) {
+	baseDir := t.TempDir()
+	out := NewDeviceFileOutput(zerolog.Nop(), DeviceFileConfig{
+		BaseDir:    baseDir,
+		MaxSizeMB:  10,
+		MaxBackups: 2,
+	})
+
+	ctx := context.Background()
+
+	// Device A — 3 ta event
+	for i := 0; i < 3; i++ {
+		evt := sampleEvent()
+		evt.DeviceIP = "172.16.0.1"
+		out.Write(ctx, evt)
+	}
+	// Device B — 2 ta event
+	for i := 0; i < 2; i++ {
+		evt := sampleEvent()
+		evt.DeviceIP = "172.16.0.2"
+		out.Write(ctx, evt)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+	out.Close()
+
+	// Device A: 3 ta qator
+	dataA, _ := os.ReadFile(filepath.Join(baseDir, "172.16.0.1", "events.jsonl"))
+	linesA := strings.Split(strings.TrimSpace(string(dataA)), "\n")
+	if len(linesA) != 3 {
+		t.Errorf("device A: 3 ta event kutildi, %d ta olindi", len(linesA))
+	}
+
+	// Device B: 2 ta qator
+	dataB, _ := os.ReadFile(filepath.Join(baseDir, "172.16.0.2", "events.jsonl"))
+	linesB := strings.Split(strings.TrimSpace(string(dataB)), "\n")
+	if len(linesB) != 2 {
+		t.Errorf("device B: 2 ta event kutildi, %d ta olindi", len(linesB))
+	}
+}
+
+func TestDeviceFileOutputName(t *testing.T) {
+	out := NewDeviceFileOutput(zerolog.Nop(), DeviceFileConfig{BaseDir: "/tmp/test"})
+	defer out.Close()
+
+	name := out.Name()
+	if !strings.Contains(name, "device-file") {
+		t.Errorf("Name() 'device-file' ni o'z ichiga olishi kerak, got: %q", name)
+	}
+}
+
+func TestDeviceFileOutputStats(t *testing.T) {
+	baseDir := t.TempDir()
+	out := NewDeviceFileOutput(zerolog.Nop(), DeviceFileConfig{BaseDir: baseDir})
+	defer out.Close()
+
+	ctx := context.Background()
+	for _, ip := range []string{"10.0.0.1", "10.0.0.2"} {
+		evt := sampleEvent()
+		evt.DeviceIP = ip
+		out.Write(ctx, evt)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	stats := out.Stats()
+	if stats["total_events"].(int64) < 2 {
+		t.Errorf("stats total_events: kamida 2 bo'lishi kerak")
+	}
+	if stats["base_dir"].(string) != baseDir {
+		t.Errorf("stats base_dir noto'g'ri: %v", stats["base_dir"])
+	}
+}

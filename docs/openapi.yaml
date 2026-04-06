@@ -1,0 +1,257 @@
+openapi: 3.1.0
+info:
+  title: Enterprise SNMP Manager API
+  description: API documentation for the SNMP Manager, covering Device Management, Topology Discovery, RBAC, and Monitoring.
+  version: 2.0.0
+servers:
+  - url: /api/v1
+    description: Current API version (v1)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Enter your JWT Bearer token here.
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Legacy API Key authentication (Fallback).
+
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+
+tags:
+  - name: Auth
+    description: Authentication and RBAC endpoints
+  - name: Discovery
+    description: Network Auto-Discovery and Topology
+  - name: Devices
+    description: Device registry management
+  - name: Monitoring
+    description: Analytics and real-time monitoring
+  - name: Config
+    description: Server & Output configuration
+
+paths:
+  # ── Auth ────────────────────────────────────────────────────────────────
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      description: Returns a JWT access and refresh token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        "401":
+          description: Invalid credentials
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get Current User
+      description: Returns the profile and permissions of the currently authenticated user.
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+  /users:
+    get:
+      tags: [Auth]
+      summary: List Users (Admin only)
+      responses:
+        "200":
+          description: List of registered users
+    post:
+      tags: [Auth]
+      summary: Create User (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        "201":
+          description: User created
+
+  # ── Discovery ────────────────────────────────────────────────────────
+  /discovery/scan:
+    post:
+      tags: [Discovery]
+      summary: Start a Discovery Scan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanRequest'
+      responses:
+        "200":
+          description: Scan started
+  /discovery/status:
+    get:
+      tags: [Discovery]
+      summary: Get Scan Status
+      responses:
+        "200":
+          description: Current status of the discovery scan
+  /discovery/results:
+    get:
+      tags: [Discovery]
+      summary: Get Scan Results
+      responses:
+        "200":
+          description: List of discovered devices
+  /discovery/register:
+    post:
+      tags: [Discovery]
+      summary: Register Discovered Devices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ips:
+                  type: array
+                  items: { type: string }
+                  description: Array of device IPs to bind. If empty, all are registered.
+      responses:
+        "200":
+          description: Devices registered
+  /topology:
+    get:
+      tags: [Discovery]
+      summary: Get Topology Data
+      description: Get active L2/L3 topology graph (nodes and links)
+      responses:
+        "200":
+          description: Network Topology Map
+  /topology/refresh:
+    post:
+      tags: [Discovery]
+      summary: Rebuild Topology Data
+      responses:
+        "200":
+          description: Network Topology Map
+
+  # ── Devices ────────────────────────────────────────────────────────
+  /devices:
+    get:
+      tags: [Devices]
+      summary: List Devices
+      responses:
+        "200":
+          description: List of devices
+  /devices/{name}:
+    get:
+      tags: [Devices]
+      summary: Get Device
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Device details
+  /devices/{name}/poll:
+    post:
+      tags: [Devices]
+      summary: Force Poll Device
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Poll initiated
+
+  # ── Monitoring ──────────────────────────────────────────────────────
+  /monitoring/summary:
+    get:
+      tags: [Monitoring]
+      summary: Get Monitoring Summary
+      responses:
+        "200":
+          description: Overview metrics
+  /monitoring/alerts:
+    get:
+      tags: [Monitoring]
+      summary: Get Active Alerts
+      responses:
+        "200":
+          description: Active critical events
+
+components:
+  schemas:
+    TokenResponse:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string }
+        expires_in: { type: integer }
+        user:
+          $ref: '#/components/schemas/UserProfile'
+    UserProfile:
+      type: object
+      properties:
+        id: { type: string }
+        username: { type: string }
+        role: { type: string, enum: [admin, operator, viewer, l1_support] }
+        tenant_id: { type: string }
+        permissions:
+          type: array
+          items: { type: string }
+    CreateUserRequest:
+      type: object
+      required: [username, password, role]
+      properties:
+        username: { type: string }
+        password: { type: string }
+        role: { type: string, enum: [admin, operator, viewer, l1_support] }
+        tenant_id: { type: string }
+    ScanRequest:
+      type: object
+      required: [subnets]
+      properties:
+        subnets:
+          type: array
+          items: { type: string }
+          example: ["10.0.0.0/24"]
+        communities:
+          type: array
+          items: { type: string }
+          example: ["public", "private"]
+        snmp_versions:
+          type: array
+          items: { type: string }
+          example: ["v2c"]
+        concurrency:
+          type: integer
+          example: 50
+        timeout:
+          type: string
+          example: "3s"

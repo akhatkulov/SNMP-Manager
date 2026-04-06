@@ -77,6 +77,14 @@ outputs:
     max_backups: 5
     compress: true
 
+  # Per-device fayl output — har qurilma uchun alohida log
+  # /var/log/snmp-manager/devices/{device_ip}/events.jsonl
+  - type: "device_file"
+    enabled: true
+    path: "/var/log/snmp-manager/devices"
+    max_size_mb: 50
+    max_backups: 7
+
   # Elasticsearch — event storage va search uchun
   - type: "elasticsearch"
     enabled: true

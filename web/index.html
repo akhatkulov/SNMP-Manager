@@ -67,6 +67,11 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
                 <span>Traps & Logs</span>
             </a>
+            <a href="#monitoring" class="nav-item" data-page="monitoring" id="nav-monitoring">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" opacity="0.3"/></svg>
+                <span>Monitoring</span>
+                <span class="nav-badge" id="alertBadge" style="display:none;background:var(--accent-red);color:#fff;font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:10px;margin-left:auto;min-width:18px;text-align:center;"></span>
+            </a>
             <a href="#events" class="nav-item" data-page="events" id="nav-events">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <span>Events (ES)</span>
@@ -79,9 +84,21 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
                 <span>Templates</span>
             </a>
+            <a href="#discovery" class="nav-item" data-page="discovery" id="nav-discovery">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                <span>Discovery</span>
+            </a>
+            <a href="#users" class="nav-item" data-page="users" id="nav-users" style="display:none;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <span>Users & Roles</span>
+            </a>
             <a href="#settings" class="nav-item" data-page="settings" id="nav-settings">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 <span>Settings</span>
+            </a>
+            <a href="#apidocs" class="nav-item" data-page="apidocs" id="nav-apidocs">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                <span>API Docs</span>
             </a>
         </nav>
         <div class="sidebar-footer">
@@ -194,6 +211,117 @@
             </div>
         </div>
 
+        <!-- ═════ Monitoring ═════ -->
+        <div class="page" id="page-monitoring">
+            <div class="page-header">
+                <h1>Monitoring</h1>
+                <p class="page-subtitle">Real-time analytics &amp; per-device metric charts</p>
+            </div>
+
+            <!-- ── Umumiy Summary Cards ── -->
+            <div class="stats-grid" id="monSummaryGrid">
+                <div class="stat-card"><div class="stat-icon stat-icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/></svg></div><div class="stat-info"><span class="stat-value" id="monTotalDevices">-</span><span class="stat-label">Total Devices</span></div></div>
+                <div class="stat-card"><div class="stat-icon stat-icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div class="stat-info"><span class="stat-value" id="monDevicesUp">-</span><span class="stat-label">Devices Up</span></div></div>
+                <div class="stat-card"><div class="stat-icon stat-icon-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="stat-info"><span class="stat-value" id="monCritical">-</span><span class="stat-label">Critical Events (1h)</span></div></div>
+                <div class="stat-card"><div class="stat-icon stat-icon-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div class="stat-info"><span class="stat-value" id="monTotalEvents">-</span><span class="stat-label">Events (1h)</span></div></div>
+            </div>
+
+            <!-- ── Charts Row: Severity + Category doughnut ── -->
+            <div class="charts-row" style="margin-bottom:16px;">
+                <div class="card chart-card">
+                    <div class="card-header"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Severity Distribution (1h)</h2></div>
+                    <div class="card-body" style="display:flex;align-items:center;justify-content:center;min-height:220px;"><canvas id="chartMonSeverity" height="220" style="max-height:220px;"></canvas></div>
+                </div>
+                <div class="card chart-card">
+                    <div class="card-header"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg> Category Distribution (1h)</h2></div>
+                    <div class="card-body" style="display:flex;align-items:center;justify-content:center;min-height:220px;"><canvas id="chartMonCategory" height="220" style="max-height:220px;"></canvas></div>
+                </div>
+                <div class="card chart-card">
+                    <div class="card-header"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Top OIDs (1h)</h2></div>
+                    <div class="card-body"><canvas id="chartMonTopOIDs" height="220" style="max-height:220px;"></canvas></div>
+                </div>
+            </div>
+
+            <!-- ── Alerts Panel ── -->
+            <div class="card" style="margin-bottom:16px;">
+                <div class="card-header">
+                    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--accent-red)"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Active Alerts <span id="alertCountBadge" style="font-size:0.75rem;color:var(--text-muted);font-weight:400;margin-left:6px;">(3h window)</span></h2>
+                    <button class="btn btn-ghost btn-sm" id="refreshAlertsBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
+                </div>
+                <div id="monAlertsContainer" class="card-body"><div class="loading-state"><div class="spinner"></div><p>Loading alerts...</p></div></div>
+            </div>
+
+            <!-- ── Device Grid (qidiruv + kartochkalar) ── -->
+            <div class="card" style="margin-bottom:16px;">
+                <div class="card-header">
+                    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/></svg> Device Analytics</h2>
+                    <div class="search-box" style="max-width:260px;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input type="text" id="monDeviceSearch" placeholder="Filter devices...">
+                    </div>
+                </div>
+                <div class="card-body" id="monDeviceGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;padding:16px;">
+                    <div class="loading-state"><div class="spinner"></div><p>Loading device analytics...</p></div>
+                </div>
+            </div>
+
+            <!-- ── Per-Device Detail Panel ── -->
+            <div class="card" id="monDeviceDetailPanel" style="display:none;">
+                <div class="card-header" id="monDeviceDetailHeader">
+                    <h2 id="monDeviceDetailTitle">Device Detail</h2>
+                    <div class="btn-group">
+                        <select id="monTimeRange" class="btn btn-ghost btn-sm" style="padding:4px 10px;background:var(--bg-input);border:1px solid var(--border-color);color:var(--text-primary);border-radius:6px;">
+                            <option value="1">Last 1 hour</option>
+                            <option value="3" selected>Last 3 hours</option>
+                            <option value="6">Last 6 hours</option>
+                            <option value="12">Last 12 hours</option>
+                            <option value="24">Last 24 hours</option>
+                        </select>
+                        <button class="btn btn-ghost btn-sm" id="monRefreshDevice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+                        <button class="btn btn-ghost btn-sm" id="monCloseDetail" style="color:var(--text-muted)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                </div>
+
+                <!-- Sub-tabs -->
+                <div class="tab-nav" id="monDeviceTabNav" style="padding:0 16px;">
+                    <div class="tab-item active" data-montab="charts">📈 Charts</div>
+                    <div class="tab-item" data-montab="metrics">📊 OID Metrics</div>
+                    <div class="tab-item" data-montab="events">📋 Recent Events</div>
+                    <div class="tab-item" data-montab="hourly">⏰ Hourly Trend</div>
+                </div>
+
+                <!-- Charts Tab -->
+                <div id="monTab-charts" class="card-body">
+                    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <label style="font-size:0.8rem;color:var(--text-muted);">OID Filter:</label>
+                        <select id="monOIDFilter" style="background:var(--bg-input);border:1px solid var(--border-color);color:var(--text-primary);border-radius:6px;padding:4px 10px;font-size:0.8rem;max-width:300px;"></select>
+                    </div>
+                    <div id="monChartsContainer" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:16px;">
+                        <div class="loading-state"><div class="spinner"></div><p>Loading charts...</p></div>
+                    </div>
+                </div>
+
+                <!-- OID Metrics Tab -->
+                <div id="monTab-metrics" class="card-body" style="display:none;">
+                    <div class="table-responsive" id="monMetricsTable">
+                        <div class="loading-state"><div class="spinner"></div><p>Loading metrics...</p></div>
+                    </div>
+                </div>
+
+                <!-- Recent Events Tab -->
+                <div id="monTab-events" class="card-body" style="display:none;">
+                    <div class="table-responsive" id="monEventsTable">
+                        <div class="loading-state"><div class="spinner"></div><p>Loading events...</p></div>
+                    </div>
+                </div>
+
+                <!-- Hourly Trend Tab -->
+                <div id="monTab-hourly" class="card-body" style="display:none;">
+                    <canvas id="chartMonHourly" height="220"></canvas>
+                </div>
+            </div>
+        </div>
+
         <!-- ═════ Events (Elasticsearch) ═════ -->
         <div class="page" id="page-events">
             <div class="page-header"><h1>Events</h1><p class="page-subtitle">Elasticsearch event browser & analytics</p></div>
@@ -266,6 +394,105 @@
                     <button class="btn btn-primary" id="createTemplateBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create Template</button>
                 </div>
                 <div class="card-body" id="templatesContainer"><div class="loading-state"><div class="spinner"></div><p>Loading templates...</p></div></div>
+            </div>
+        </div>
+
+        <!-- ═════ Discovery & Topology ═════ -->
+        <div class="page" id="page-discovery">
+            <div class="page-header">
+                <div style="flex:1;">
+                    <h1>Network Discovery</h1>
+                    <p class="page-subtitle">Auto-discover devices and view L2/L3 topology</p>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-outline" id="discoveryRefreshBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Refresh Topology</button>
+                    <button class="btn btn-primary" id="discoveryScanBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> New Scan</button>
+                </div>
+            </div>
+            
+            <div class="tab-nav" id="discoveryTabNav">
+                <div class="tab-item active" data-tab="topo">Topology Map</div>
+                <div class="tab-item" data-tab="scan">Scan Results</div>
+            </div>
+            
+            <div class="tab-content">
+                <div class="tab-pane active" id="tab-disc-topo">
+                    <div class="card" style="height: 60vh; display: flex; align-items: center; justify-content: center;" id="topologyContainer">
+                        <p class="text-muted">Loading topology map...</p>
+                    </div>
+                </div>
+                <div class="tab-pane" id="tab-disc-scan">
+                    <!-- Scan Control Form -->
+                    <div class="card" id="discoveryScanControl" style="margin-bottom: 20px; display: none;">
+                        <div class="card-header"><h3>Scan Configuration</h3></div>
+                        <div class="card-body">
+                            <form id="discoveryForm">
+                                <div class="form-row">
+                                    <div class="form-group"><label>Target Subnets (CIDR)</label><input type="text" id="discSubnets" placeholder="e.g. 10.0.0.0/24, 192.168.1.0/24" required></div>
+                                    <div class="form-group"><label>Communities (Comma separated)</label><input type="text" id="discCommunities" value="public,private"></div>
+                                </div>
+                                <div class="form-group">
+                                    <button type="submit" class="btn btn-primary">Start Subnet Scan</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    <div class="card" id="discoveryResultsCard">
+                        <div class="card-header">
+                            <h3>Scan Results</h3>
+                            <button class="btn btn-sm btn-primary" id="discoveryRegisterBtn" style="display:none;">Register Devices</button>
+                        </div>
+                        <div class="results-table-wrapper" style="overflow-x:auto;">
+                            <table class="data-table" id="discoveryResultsTable" style="display:none;">
+                                <thead><tr><th>Select</th><th>IP Address</th><th>Hostname</th><th>Vendor / Type</th><th>Template</th><th>Status</th></tr></thead>
+                                <tbody></tbody>
+                            </table>
+                            <div id="discoveryEmpty" style="padding: 30px; text-align: center; color: var(--text-muted);">
+                                No scan results available. Run a new scan.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═════ Users & RBAC ═════ -->
+        <div class="page" id="page-users">
+            <div class="page-header">
+                <div>
+                    <h1>Users & Roles</h1>
+                    <p class="page-subtitle">Manage RBAC, multi-tenancy, and system access</p>
+                </div>
+                <button class="btn btn-primary" id="userAddBtn">+ Add User</button>
+            </div>
+            <div class="card">
+                <div class="results-table-wrapper">
+                    <table class="data-table" id="usersTable">
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Role</th>
+                                <th>Tenant</th>
+                                <th>Status</th>
+                                <th>Last Login</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═════ API Docs ═════ -->
+        <div class="page" id="page-apidocs">
+            <div class="page-header">
+                <h1>API Documentation</h1>
+                <p class="page-subtitle">OpenAPI 3.1 Specification and Swagger UI</p>
+            </div>
+            <div class="card" style="height: 75vh; overflow: hidden; padding: 0;">
+                <iframe src="/api/docs/openapi.yaml" id="swaggerIframe" style="width: 100%; height: 100%; border: none;"></iframe>
             </div>
         </div>
 
@@ -491,5 +718,8 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script src="app.js"></script>
+    <script src="monitoring.js"></script>
+    <script src="users.js"></script>
+    <script src="discovery.js"></script>
 </body>
 </html>
